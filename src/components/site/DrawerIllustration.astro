@@ -1,0 +1,65 @@
+---
+// A static picture of a laid-out drawer, drawn in the same drafting style as the tool:
+// cream paper, a 42mm reference grid, and pigment-coloured bins with dividers.
+interface Props {
+  class?: string;
+}
+const { class: className } = Astro.props;
+
+const bins = [
+  { x: 6, y: 6, w: 120, d: 78, c: '#8a9a5b', label: 'Cables', divX: [60], divY: [] as number[] },
+  { x: 130, y: 6, w: 78, d: 78, c: '#c9a13b', label: 'Batteries', divX: [], divY: [39] },
+  { x: 212, y: 6, w: 162, d: 120, c: '#5f9fa8', label: 'Tools', divX: [54, 108], divY: [] },
+  { x: 6, y: 88, w: 202, d: 72, c: '#c07a55', label: 'Pens & markers', divX: [50, 100, 150], divY: [] },
+  { x: 6, y: 164, w: 98, d: 112, c: '#93708f', label: 'Tape', divX: [], divY: [56] },
+  { x: 108, y: 164, w: 100, d: 112, c: '#6f7ea8', label: 'Scissors', divX: [], divY: [] },
+  { x: 212, y: 130, w: 162, d: 146, c: '#b3583f', label: 'Odds & ends', divX: [81], divY: [73] },
+];
+const W = 380, D = 282, pad = 26;
+const grid = Array.from({ length: 10 }, (_, i) => i * 42);
+const gridX = grid.filter((g) => g < W + 1);
+const gridY = grid.filter((g) => g < D + 1);
+---
+
+<svg
+  class={className}
+  viewBox={`0 0 ${W + pad + 10} ${D + pad + 10}`}
+  role="img"
+  aria-label="Top-down view of a drawer laid out with seven custom bins, some split by dividers"
+>
+  <g transform={`translate(${pad} ${pad})`} font-family="IBM Plex Mono, monospace">
+    <rect width={W} height={D} rx="4" fill="#efe9da" stroke="#c6c3b0"></rect>
+    {
+      gridX.map((x) => (
+        <>
+          <line x1={x} y1="0" x2={x} y2={D} stroke="#c6c3b0" stroke-width="0.75" opacity="0.7" />
+          <text x={x} y="-8" font-size="8" fill="#4a7c3f" text-anchor="middle">{x}</text>
+        </>
+      ))
+    }
+    {
+      gridY.map((y) => (
+        <>
+          <line x1="0" y1={y} x2={W} y2={y} stroke="#c6c3b0" stroke-width="0.75" opacity="0.7" />
+          <text x="-6" y={y + 3} font-size="8" fill="#4a7c3f" text-anchor="end">{y}</text>
+        </>
+      ))
+    }
+    {
+      bins.map((b) => (
+        <g>
+          <rect x={b.x} y={b.y} width={b.w} height={b.d} rx="3" fill={b.c} opacity="0.9" stroke="#1f2421" stroke-width="0.6" />
+          {b.divX.map((p) => (
+            <line x1={b.x + p} y1={b.y + 3} x2={b.x + p} y2={b.y + b.d - 3} stroke="rgba(0,0,0,0.45)" stroke-width="1.5" />
+          ))}
+          {b.divY.map((p) => (
+            <line x1={b.x + 3} y1={b.y + p} x2={b.x + b.w - 3} y2={b.y + p} stroke="rgba(0,0,0,0.45)" stroke-width="1.5" />
+          ))}
+          <text x={b.x + 6} y={b.y + 14} font-size="9" font-weight="600" fill="#181b1a" font-family="Inter, sans-serif">
+            {b.label}
+          </text>
+        </g>
+      ))
+    }
+  </g>
+</svg>

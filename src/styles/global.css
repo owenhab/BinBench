@@ -1,0 +1,168 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: false;
+}
+
+/* Marketing site: warm paper whites with a deep sage primary, pulled from the tool's
+   drafting-table palette so the two still feel related. */
+@plugin "daisyui/theme" {
+  name: "binbench";
+  default: true;
+  color-scheme: light;
+  --color-base-100: #fbfaf6;
+  --color-base-200: #f3f0e7;
+  --color-base-300: #e4dfd0;
+  --color-base-content: #1f2421;
+  --color-primary: #2f5d3a;
+  --color-primary-content: #f6f3ea;
+  --color-secondary: #b8673f;
+  --color-secondary-content: #fff8f2;
+  --color-accent: #c9a13b;
+  --color-accent-content: #241c06;
+  --color-neutral: #1f2421;
+  --color-neutral-content: #ece8dc;
+  --color-info: #3f7a8a;
+  --color-info-content: #f2fbfd;
+  --color-success: #2f8a78;
+  --color-success-content: #effcf8;
+  --color-warning: #c9a13b;
+  --color-warning-content: #241c06;
+  --color-error: #b3483d;
+  --color-error-content: #fff4f2;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* The tool itself: a dark workbench with a cream "paper" drawing surface. */
+@plugin "daisyui/theme" {
+  name: "workbench";
+  color-scheme: dark;
+  --color-base-100: #212524;
+  --color-base-200: #1c201f;
+  --color-base-300: #181b1a;
+  --color-base-content: #dfe4e1;
+  --color-primary: #7fb069;
+  --color-primary-content: #101a0c;
+  --color-secondary: #c07a55;
+  --color-secondary-content: #1a0f08;
+  --color-accent: #c9a13b;
+  --color-accent-content: #1a1404;
+  --color-neutral: #2a2f2d;
+  --color-neutral-content: #dfe4e1;
+  --color-info: #5f9fa8;
+  --color-info-content: #0b1517;
+  --color-success: #52b3a0;
+  --color-success-content: #081612;
+  --color-warning: #c9a13b;
+  --color-warning-content: #1a1404;
+  --color-error: #cf5b4e;
+  --color-error-content: #1a0907;
+  --radius-selector: 0.25rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.375rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* Drawing-surface tokens the tool's SVGs use directly. */
+[data-theme="workbench"] {
+  --bb-ink: #181b1a;
+  --bb-panel-2: #2a2f2d;
+  --bb-line: #39403d;
+  --bb-paper: #e9e4d6;
+  --bb-paper-line: #c6c3b0;
+  --bb-measure: #7fb069;
+  --bb-rule: #4a7c3f;
+  --bb-ok: #52b3a0;
+  --bb-warn: #cf5b4e;
+  --bb-dim: #8d9691;
+  --bb-plate-bg: #141817;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- tool components ---------- */
+@layer components {
+  .bb-panel {
+    @apply rounded-box border bg-base-100;
+    border-color: var(--bb-line);
+  }
+  .bb-h {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em];
+    color: var(--bb-dim);
+  }
+  .bb-label {
+    @apply mb-0.5 block text-[10.5px] uppercase tracking-[0.05em];
+    color: var(--bb-dim);
+  }
+  .bb-hint {
+    @apply mt-1.5 text-[11px] leading-relaxed;
+    color: var(--bb-dim);
+  }
+  .bb-input {
+    @apply w-full rounded-field border px-2 py-1.5 font-mono text-[13px] text-base-content outline-none;
+    background: var(--bb-ink);
+    border-color: var(--bb-line);
+  }
+  .bb-input:focus {
+    border-color: var(--bb-measure);
+    outline: 1px solid var(--bb-measure);
+  }
+  .bb-input-sm {
+    @apply px-1.5 py-1 text-[11.5px];
+  }
+  .bb-mono-dim {
+    @apply font-mono text-[11px] font-normal normal-case tracking-normal;
+    color: var(--bb-dim);
+  }
+  .bb-empty {
+    @apply p-5 text-center text-[12.5px];
+    color: var(--bb-dim);
+  }
+  .bb-btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1 rounded-field border px-3 py-1.5 text-[12.5px] font-medium whitespace-nowrap text-base-content transition-[border-color,filter];
+    background: var(--bb-panel-2);
+    border-color: var(--bb-line);
+  }
+  .bb-btn:hover:not(:disabled) {
+    border-color: var(--bb-measure);
+  }
+  .bb-btn:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+  .bb-btn:focus-visible {
+    outline: 2px solid var(--bb-measure);
+    outline-offset: 1px;
+  }
+  .bb-btn-xs {
+    @apply px-2 py-1 text-[11px];
+  }
+  .bb-btn-primary {
+    @apply font-bold text-primary-content;
+    background: var(--bb-measure);
+    border-color: var(--bb-measure);
+  }
+  .bb-btn-primary:hover {
+    filter: brightness(1.08);
+  }
+  .bb-btn-danger {
+    color: var(--bb-warn);
+    border-color: var(--bb-warn);
+  }
+}

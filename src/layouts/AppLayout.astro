@@ -1,0 +1,40 @@
+---
+import '@/styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" data-theme="workbench" class="bg-base-300">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · Bin Bench</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-base-300 font-sans text-base-content">
+    <header class="flex items-center justify-between gap-4 border-b border-[var(--bb-line)] bg-base-300 px-4 py-3 sm:px-7">
+      <a href="/" class="text-xl font-bold tracking-wide">Bin <span class="text-primary">Bench</span></a>
+      <nav aria-label="Site" class="flex items-center gap-4 text-sm text-[var(--bb-dim)]">
+        <a href="/how-it-works" class="hover:text-base-content">How it works</a>
+        <a href="/faq" class="hover:text-base-content">FAQ</a>
+      </nav>
+    </header>
+    <slot />
+    <noscript>
+      <p class="p-8 text-center">Bin Bench runs entirely in your browser and needs JavaScript turned on.</p>
+    </noscript>
+  </body>
+</html>

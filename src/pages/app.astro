@@ -1,0 +1,16 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import BinBenchApp from '@/components/binbench/BinBenchApp';
+---
+
+<AppLayout
+  title="Designer"
+  description="Lay out custom drawer bins and dividers, preview them in 3D, and export ready-to-print 3MF files."
+>
+  <h1 class="sr-only">Bin Bench designer</h1>
+  <BinBenchApp client:only="react">
+    <div slot="fallback" class="grid min-h-[60vh] place-items-center text-sm text-[var(--bb-dim)]">
+      <span class="flex items-center gap-3"><span class="loading loading-spinner loading-sm text-primary"></span> Loading the designer…</span>
+    </div>
+  </BinBenchApp>
+</AppLayout>

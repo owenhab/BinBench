@@ -1,0 +1,109 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+
+const steps = [
+  {
+    title: 'Measure the inside of your drawer',
+    body: [
+      'Measure the inside of the drawer box (not the drawer front) for width (left to right), depth (front to back) and height. Measure at the narrowest point, since drawers often taper a little toward the back.',
+      'In the designer, enter these under Drawer interior. You can switch between millimetres and inches at any time and your sizes stay exact.',
+    ],
+    tip: 'Not sure the layout will feel right? Use Print 1:1 template to print the drawer outline at true size on paper, tape the sheets together and lay it in the drawer.',
+  },
+  {
+    title: 'Tell it about your printer',
+    body: [
+      'Choose your printer under Printer bed, or enter its build size by hand. Bin Bench uses this to warn you when a bin is too big to print in one go, and to split the job into as few print plates as possible.',
+    ],
+  },
+  {
+    title: 'Draw your bins',
+    body: [
+      'Click and drag on the drawer drawing to sketch a bin. A small editor appears beside it where you can name it, type exact sizes and set its height. Bins snap to the drawer walls and to their neighbours, and a green guide line shows when they’ve lined up.',
+      'Click a bin to edit it later, or drag it to move it. Copy a bin with Ctrl/Cmd+C and paste copies with Ctrl/Cmd+V.',
+    ],
+  },
+  {
+    title: 'Add dividers',
+    body: [
+      'In the bin editor, use Even split to divide a bin into equal columns and rows, or add dividers one at a time. Drag a divider’s bar to slide it, or drag its round end caps to make it stop partway across.',
+      'Each divider can have its own height. A lower divider (shown dashed) is handy when you want to reach over it, like a short wall in front of taller items.',
+    ],
+  },
+  {
+    title: 'Work around obstructions and stack deep drawers',
+    body: [
+      'Switch to Mark obstruction and drag over anything in the way, such as drawer slides, hinges or a pipe. Give it a height and bins will keep clear of it. The baseplate is cut out around it too.',
+      'For a deep drawer, use the Level tabs to stack a second layer. An upper bin sits on the rims of the bin below it, so it has to run that bin’s full width or full depth, like a shelf resting on two walls.',
+    ],
+  },
+  {
+    title: 'Check it in 3D',
+    body: [
+      'The 3D preview shows the drawer, baseplate and bins together. Drag to spin it, scroll to zoom, and turn on Lift bins out to see how the feet line up with the baseplate.',
+    ],
+  },
+  {
+    title: 'Download and print',
+    body: [
+      'The print-plate preview shows how your bins will be split across your printer’s build plate. Export every plate as one 3MF to get a single file. Bambu Studio opens it with each plate already set up, and other slicers show the plates side by side.',
+      'You can also download single bins as STL or 3MF, and download the baseplate sections, which are split to fit your printer.',
+    ],
+    tip: 'The baseplate is optional. Without it your bins print with flat bottoms and just sit in the drawer.',
+  },
+  {
+    title: 'Save your project',
+    body: [
+      'Save writes your layout to a small .json file on your computer, and Open loads it again later. Nothing is uploaded anywhere. Copy JSON and Paste JSON are a backup option that works in any browser.',
+    ],
+  },
+];
+---
+
+<BaseLayout
+  title="How it works"
+  description="A step-by-step guide to designing a custom drawer organizer in Bin Bench and printing it on your 3D printer."
+>
+  <section class="border-b border-base-300 bg-base-200">
+    <div class="mx-auto max-w-3xl px-4 py-16 sm:px-6">
+      <p class="font-mono text-sm text-primary">Walkthrough</p>
+      <h1 class="mt-2 text-4xl font-extrabold tracking-tight sm:text-5xl">How Bin Bench works</h1>
+      <p class="mt-5 text-lg text-base-content/75">
+        From a tape measure to a finished, organized drawer in eight steps. You can also replay the built-in guided tour at any time from
+        the Tutorial button in the designer.
+      </p>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-4 py-16 sm:px-6">
+    <ol class="relative space-y-12 border-l-2 border-base-300 pl-8 sm:pl-10">
+      {
+        steps.map((s, i) => (
+          <li class="relative">
+            <span class="absolute top-0 -left-[3.05rem] grid size-9 place-items-center rounded-full border-2 border-primary bg-base-100 font-mono text-sm font-semibold text-primary sm:-left-[3.55rem]">
+              {i + 1}
+            </span>
+            <h2 class="text-2xl font-bold tracking-tight">{s.title}</h2>
+            {s.body.map((para) => (
+              <p class="mt-3 leading-relaxed text-base-content/80">{para}</p>
+            ))}
+            {s.tip && (
+              <div class="mt-4 rounded-box border border-accent/40 bg-accent/10 px-4 py-3 text-sm">
+                <span class="font-semibold">Tip:</span> {s.tip}
+              </div>
+            )}
+          </li>
+        ))
+      }
+    </ol>
+
+    <div class="mt-16 rounded-box border border-base-300 bg-base-200 p-8 text-center">
+      <h2 class="text-2xl font-bold">Ready to try it?</h2>
+      <p class="mt-2 text-base-content/70">It’s free and runs entirely in your browser.</p>
+      <div class="mt-6 flex flex-wrap justify-center gap-3">
+        <a href="/app" class="btn btn-primary">Open the designer</a>
+        <a href="/faq" class="btn btn-ghost">Read the FAQ</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

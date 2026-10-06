@@ -1,0 +1,139 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import DrawerIllustration from '@/components/site/DrawerIllustration.astro';
+
+const features = [
+  {
+    title: 'Draw it to the millimetre',
+    body: 'Drag out a bin on a to-scale drawing of your drawer, then type exact sizes. Bins snap to the walls and to each other so the layout stays tidy.',
+    icon: 'M4 4h16v16H4z M4 10h16 M10 4v16',
+  },
+  {
+    title: 'Dividers wherever you want them',
+    body: 'Split a bin evenly in a click, or place each divider by hand. Lower some so you can reach over them, and trim them to stop partway across.',
+    icon: 'M4 4h16v16H4z M12 4v16 M12 12h8',
+  },
+  {
+    title: 'Works around what’s in the way',
+    body: 'Mark drawer slides, hinges or pipes as obstructions. Bins keep clear of them and the baseplate gets cut out around them.',
+    icon: 'M4 4h16v16H4z M14 14h6v6h-6z M15 15l4 4 M19 15l-4 4',
+  },
+  {
+    title: 'Stacks for deep drawers',
+    body: 'Stack a second layer of bins on top of the first. Each upper bin sits on the rim of the one below, so deep drawers don’t go to waste.',
+    icon: 'M4 14h16v6H4z M6 8h12v6H6z M8 3h8v5H8z',
+  },
+  {
+    title: 'A baseplate that locks them in',
+    body: 'An optional baseplate holds every bin in place with tapered feet, Gridfinity-style. Move bins around later without reprinting the plate.',
+    icon: 'M3 17h18 M5 17v-3h3v3 M10.5 17v-3h3v3 M16 17v-3h3v3',
+  },
+  {
+    title: 'Ready-to-print files',
+    body: 'Download 3MF or STL files laid out to fit your printer’s bed. Bambu Studio opens multi-plate 3MF files with every plate already sorted.',
+    icon: 'M12 4v11 M7 10l5 5 5-5 M5 20h14',
+  },
+];
+
+const steps = [
+  { n: '01', title: 'Measure', body: 'Measure the inside of your drawer: width, depth and height.' },
+  { n: '02', title: 'Design', body: 'Lay out bins and dividers on screen and check the fit in 3D.' },
+  { n: '03', title: 'Export', body: 'Download print-ready 3MF files, split to fit your printer.' },
+  { n: '04', title: 'Print', body: 'Slice, print and drop everything into the drawer.' },
+];
+---
+
+<BaseLayout
+  title="Bin Bench"
+  description="Design custom drawer organizers with dividers in your browser, then download ready-to-print 3MF files for your 3D printer."
+>
+  <!-- Hero -->
+  <section class="relative overflow-hidden border-b border-base-300 bg-base-200">
+    <div
+      class="pointer-events-none absolute inset-0 opacity-[0.35]"
+      style="background-image: linear-gradient(var(--color-base-300) 1px, transparent 1px), linear-gradient(90deg, var(--color-base-300) 1px, transparent 1px); background-size: 42px 42px;"
+      aria-hidden="true"
+    >
+    </div>
+    <div class="relative mx-auto grid max-w-6xl items-center gap-12 px-4 py-16 sm:px-6 md:py-24 lg:grid-cols-[1.05fr_1fr]">
+      <div>
+        <p class="mb-4 inline-flex items-center gap-2 rounded-full border border-base-300 bg-base-100 px-3 py-1 font-mono text-xs text-base-content/70">
+          <span class="size-1.5 rounded-full bg-primary"></span> Free, runs in your browser
+        </p>
+        <h1 class="text-4xl font-extrabold tracking-tight text-balance sm:text-5xl lg:text-6xl">
+          Drawer organizers that <span class="text-primary">actually fit.</span>
+        </h1>
+        <p class="mt-6 max-w-xl text-lg text-pretty text-base-content/75">
+          Bin Bench lets you design custom bins and dividers for any drawer, then turns your layout into files you can print on your own 3D
+          printer. No CAD skills needed. If you can measure a drawer, you can use it.
+        </p>
+        <div class="mt-8 flex flex-wrap gap-3">
+          <a href="/app" class="btn btn-primary btn-lg">Start designing</a>
+          <a href="/how-it-works" class="btn btn-ghost btn-lg">See how it works →</a>
+        </div>
+        <p class="mt-5 text-sm text-base-content/60">No account, no upload. Your designs stay on your computer.</p>
+      </div>
+      <div class="rounded-box border border-base-300 bg-base-100 p-4 shadow-xl shadow-base-content/5 sm:p-6">
+        <DrawerIllustration class="h-auto w-full" />
+        <p class="mt-3 text-center font-mono text-xs text-base-content/60">380 × 282 mm drawer · 7 bins · 42 mm grid</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+    <div class="max-w-2xl">
+      <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Built for the drawer you actually have</h2>
+      <p class="mt-4 text-lg text-base-content/70">
+        Store-bought organizers come in fixed sizes. Bin Bench starts from your drawer’s real measurements, so nothing rattles around and no
+        space goes to waste.
+      </p>
+    </div>
+    <ul class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        features.map((f) => (
+          <li class="rounded-box border border-base-300 bg-base-100 p-6 transition-shadow hover:shadow-lg hover:shadow-base-content/5">
+            <span class="mb-4 grid size-11 place-items-center rounded-field bg-primary/10 text-primary">
+              <svg viewBox="0 0 24 24" class="size-6" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+                <path d={f.icon} />
+              </svg>
+            </span>
+            <h3 class="text-lg font-semibold">{f.title}</h3>
+            <p class="mt-2 text-base-content/70">{f.body}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <!-- Steps -->
+  <section class="border-y border-base-300 bg-base-200">
+    <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+      <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">From tape measure to finished drawer</h2>
+      <ol class="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+        {
+          steps.map((s) => (
+            <li class="border-t-2 border-primary pt-5">
+              <span class="font-mono text-sm text-primary">{s.n}</span>
+              <h3 class="mt-1 text-xl font-semibold">{s.title}</h3>
+              <p class="mt-2 text-base-content/70">{s.body}</p>
+            </li>
+          ))
+        }
+      </ol>
+      <a href="/how-it-works" class="btn btn-outline btn-primary mt-12">Read the full walkthrough</a>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="mx-auto max-w-6xl px-4 py-20 sm:px-6">
+    <div class="rounded-box bg-neutral px-6 py-14 text-center text-neutral-content sm:px-12">
+      <h2 class="text-3xl font-bold tracking-tight text-balance sm:text-4xl">Got a messy drawer? Fix it this weekend.</h2>
+      <p class="mx-auto mt-4 max-w-xl text-neutral-content/75">
+        Open the designer, enter your drawer’s size, and drag out your first bin. A short guided tour shows you around the first time.
+      </p>
+      <a href="/app" class="btn btn-primary btn-lg mt-8">Open the designer</a>
+      <p class="mt-4 text-sm text-neutral-content/60">Works best on a laptop or desktop.</p>
+    </div>
+  </section>
+</BaseLayout>

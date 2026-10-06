@@ -1,0 +1,120 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+
+const groups = [
+  {
+    heading: 'Getting started',
+    items: [
+      {
+        q: 'Do I need a 3D printer?',
+        a: 'To print the bins, yes, or a friend, library or print service that has one. Designing is free and doesn’t need one, and you can print a true-size paper template to check the layout in your drawer first.',
+      },
+      {
+        q: 'Do I need to know CAD or 3D modelling?',
+        a: 'No. You draw rectangles on a to-scale picture of your drawer and type in sizes. Bin Bench builds the 3D models for you.',
+      },
+      {
+        q: 'Does it cost anything, or need an account?',
+        a: 'No. It’s free, there’s no sign-up, and it runs entirely in your browser.',
+      },
+      {
+        q: 'Does it work on a phone or tablet?',
+        a: 'You can open it on a tablet, and touch dragging works. The designer has a lot of controls, though, so a laptop or desktop with a mouse is much more comfortable.',
+      },
+    ],
+  },
+  {
+    heading: 'Printing',
+    items: [
+      {
+        q: 'Which printers and slicers does it work with?',
+        a: 'Any printer whose slicer can open 3MF or STL files, which is nearly all of them. There are presets for Bambu Lab printers, and the multi-plate 3MF opens in Bambu Studio with every plate already set up. For other printers, enter your build size by hand.',
+      },
+      {
+        q: 'What if a bin is bigger than my print bed?',
+        a: 'Bin Bench warns you while you’re drawing (the bin gets a red outline and a ⚠ symbol), so you can make it smaller or split it into two bins. The baseplate is split into sections that fit your bed automatically.',
+      },
+      {
+        q: 'What material should I use?',
+        a: 'PLA works well for most drawers. PETG is a good choice if the drawer gets warm or damp, like in a bathroom or garage.',
+      },
+      {
+        q: 'Do I need supports?',
+        a: 'Bins and baseplate sections print without supports. The one exception is the optional “print all sections in one stack” baseplate job, which needs supports set to “everywhere” so the sections separate cleanly.',
+      },
+    ],
+  },
+  {
+    heading: 'Fit & features',
+    items: [
+      {
+        q: 'What is the baseplate, and do I need it?',
+        a: 'It’s an optional grid that sits in the bottom of the drawer. Each bin has small tapered feet that drop into its sockets, so bins stay put when you open and close the drawer, and you can rearrange them later without reprinting the plate. Without it, bins print with flat bottoms.',
+      },
+      {
+        q: 'Is it compatible with Gridfinity?',
+        a: 'It works on the same idea, a grid of sockets with matching feet, and uses a 42 mm grid by default. The foot and socket shapes are Bin Bench’s own, so mix Bin Bench bins with Bin Bench baseplates rather than with other Gridfinity parts.',
+      },
+      {
+        q: 'My bins are too tight or too loose. What do I change?',
+        a: 'Under Layout & walls, Wall clearance sets the gap between the bins and the drawer sides, and Min bin gap sets the gap between bins. Under Baseplate, Fit clearance sets how snugly the feet sit in their sockets. Raise these values a little if prints come out tight.',
+      },
+      {
+        q: 'Can I work in inches?',
+        a: 'Yes. Switch Units to Standard (in). Everything is stored in millimetres behind the scenes, so switching never changes the actual sizes.',
+      },
+    ],
+  },
+  {
+    heading: 'Your projects',
+    items: [
+      {
+        q: 'Where are my designs saved?',
+        a: 'On your computer. Save creates a small .json project file, and in Chrome and Edge it keeps updating that same file. Nothing is uploaded, so keep the file somewhere safe and use Open to carry on later.',
+      },
+      {
+        q: 'I removed a bin by accident. Can I get it back?',
+        a: 'Yes. Removing a bin moves it to Shelved bins rather than deleting it. Click Add to drawer to put it back.',
+      },
+    ],
+  },
+];
+---
+
+<BaseLayout title="FAQ" description="Answers to common questions about designing and 3D printing custom drawer organizers with Bin Bench.">
+  <section class="border-b border-base-300 bg-base-200">
+    <div class="mx-auto max-w-3xl px-4 py-16 sm:px-6">
+      <p class="font-mono text-sm text-primary">Help</p>
+      <h1 class="mt-2 text-4xl font-extrabold tracking-tight sm:text-5xl">Frequently asked questions</h1>
+      <p class="mt-5 text-lg text-base-content/75">
+        Can’t find what you need? The <a href="/how-it-works" class="link link-primary">walkthrough</a> covers each step in detail.
+      </p>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-3xl space-y-12 px-4 py-16 sm:px-6">
+    {
+      groups.map((g) => (
+        <div>
+          <h2 class="mb-4 text-xl font-bold tracking-tight">{g.heading}</h2>
+          <div class="space-y-2">
+            {g.items.map((it) => (
+              <details class="collapse-arrow collapse rounded-box border border-base-300 bg-base-100">
+                <summary class="collapse-title font-semibold">{it.q}</summary>
+                <div class="collapse-content leading-relaxed text-base-content/80">
+                  <p>{it.a}</p>
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      ))
+    }
+
+    <div class="rounded-box border border-base-300 bg-base-200 p-8 text-center">
+      <h2 class="text-2xl font-bold">Give it a go</h2>
+      <p class="mt-2 text-base-content/70">The guided tour opens the first time you visit the designer.</p>
+      <a href="/app" class="btn btn-primary mt-6">Open the designer</a>
+    </div>
+  </section>
+</BaseLayout>
