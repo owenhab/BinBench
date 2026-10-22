@@ -1,5 +1,6 @@
 ---
 import '@/styles/global.css';
+import Analytics from '@vercel/analytics/astro';
 import SiteHeader from '@/components/site/SiteHeader.astro';
 import SiteFooter from '@/components/site/SiteFooter.astro';
 
@@ -32,6 +33,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <Analytics />
   </head>
   <body class="flex min-h-screen flex-col bg-base-100 font-sans text-base-content">
     <a
