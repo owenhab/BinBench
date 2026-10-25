@@ -8,32 +8,56 @@
 //   every corner arc is centred 4 mm in from the cell edge, so radius = 4 − inset
 //   magnet pockets 6.5 × 2.4 mm, 13 mm each way from the cell centre
 //
-// One departure from the published profile: stock Gridfinity runs each pocket's top
-// chamfer out to the cell edge, so the wall between two pockets ends in a knife edge.
-// It prints badly and chips. `rimLand` gives that wall a flat top instead, taken half
-// out of each cell, and the bin foot is pulled in by the same amount plus the fit
-// clearance so it still drops past it. Our bins sit on a stock baseplate either way;
-// a stock bin on our plate lands `rimLand/2` shy of its seat.
+// Stock Gridfinity runs each pocket's top chamfer out to the cell edge, so the wall
+// between two pockets ends in a knife edge: fragile, and it chips. Rather than alter
+// the published profile, the plate simply STOPS at the height where that chamfer has
+// narrowed to `rimLand` across — nothing is moved, the top is just cut off. Every
+// dimension below the cut is the published one, so a stock bin seats in our plate
+// exactly as it would in any other, and our bins sit in a stock plate. The only
+// difference is a plate `rimLand/2` shorter, with that much less chamfer to engage.
 //
 // This module owns the constants, the mode switch and every bit of snapping. The
 // solids built from the same constants live in geometry.ts.
 import { type Bin, type CustomBp, type Project, type Rect, usableBounds } from './model';
 
-/** flat left on top of the wall between two pockets, shared half-and-half */
+/** how wide the flat on top of the wall between two pockets should be, shared
+ *  half-and-half by the two cells that meet there */
 const RIM_LAND = 2;
 const CLEAR = 0.25;
+
+/** the published baseplate pocket, [z, inset from the cell edge] */
+const POCKET_PUBLISHED: [number, number][] = [[0, 2.85], [0.7, 2.15], [2.5, 2.15], [4.65, 0]];
+
+/** Cut a [z, inset] profile off where it first narrows past `inset`, keeping every
+ *  point below the cut exactly where the standard puts it. */
+function truncateAt(prof: [number, number][], inset: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < prof.length; i++) {
+    const [z, ins] = prof[i];
+    if (ins >= inset) {
+      out.push([z, ins]);
+      continue;
+    }
+    const [pz, pins] = prof[i - 1];
+    out.push([Math.round((pz + ((pins - inset) / (pins - ins)) * (z - pz)) * 1e6) / 1e6, inset]);
+    break;
+  }
+  return out;
+}
+const POCKET = truncateAt(POCKET_PUBLISHED, RIM_LAND / 2);
 
 export const GF = {
   pitch: 42,
   clear: CLEAR,
   rimLand: RIM_LAND,
   hUnit: 7,
-  plateH: 4.65,
+  /** shorter than the published 4.65: the chamfer is cut where it reaches `rimLand` */
+  plateH: POCKET[POCKET.length - 1][0],
   footH: 4.75,
   rc: 4,
   /** [z, inset from the cell edge] */
-  pocket: [[0, 2.85], [0.7, 2.15], [2.5, 2.15], [4.65, RIM_LAND / 2]] as [number, number][],
-  foot: [[0, 3.2], [0.8, 2.4], [2.6, 2.4], [4.75, RIM_LAND / 2 + CLEAR]] as [number, number][],
+  pocket: POCKET,
+  foot: [[0, 3.2], [0.8, 2.4], [2.6, 2.4], [4.75, 0.25]] as [number, number][],
   magR: 3.25,
   magDepth: 2.4,
   magOff: 13,
@@ -53,6 +77,13 @@ export const CUSTOM_BP_FALLBACK: CustomBp = { unit: 42, baseThick: 5, footH: 3, 
 
 export function gfOn(p: Project) {
   return !!p.gridfinity;
+}
+/** Whether bins are held to whole cells and whole height units. The profile is the
+ *  Gridfinity one either way — this only governs the snapping, so a free-sized bin
+ *  still grows the standard foot on whatever cells it reaches, trimmed to its own
+ *  outline, and still drops into the same plate. */
+export function gfSnaps(p: Project) {
+  return gfOn(p) && p.gfWholeCells !== false;
 }
 /** height of the magnet floor under the pockets (0 for the open frame) */
 export function gfFloorH(p: Project) {
@@ -83,7 +114,13 @@ export function setGridfinity(p: Project, on: boolean): Project {
   };
   const on1: Project = { ...p, customBp, gridfinity: true };
   const on2: Project = { ...on1, ...gridfinityValues(on1) };
-  return { ...on2, bins: gfSnapAllBins(on2) };
+  return gfSnaps(on2) ? { ...on2, bins: gfSnapAllBins(on2) } : on2;
+}
+
+/** Turning the snapping back on brings the bins already in the drawer with it. */
+export function setWholeCells(p: Project, on: boolean): Project {
+  const next: Project = { ...p, gfWholeCells: on };
+  return gfSnaps(next) ? { ...next, bins: gfSnapAllBins(next) } : next;
 }
 
 // ---------- snapping ----------

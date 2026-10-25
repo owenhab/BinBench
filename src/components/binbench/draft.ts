@@ -16,7 +16,7 @@ import {
   snapTo,
   usableBounds,
 } from '@/lib/binbench/model';
-import { gfOn, gfSnapEdges } from '@/lib/binbench/gridfinity';
+import { gfSnapEdges, gfSnaps } from '@/lib/binbench/gridfinity';
 
 export interface Draft {
   x: number;
@@ -218,7 +218,7 @@ export function applyDrag(
   setDraftSize(d, Math.max(minSize, right - left), Math.max(minSize, bottom - top));
   d.x = left;
   d.y = top;
-  if (gfOn(p)) {
+  if (gfSnaps(p)) {
     const r = gfSnapEdges(p, left, left + d.w, top, top + d.d, false);
     setDraftSize(d, r.w, r.d);
     d.x = r.x;
@@ -243,7 +243,7 @@ export function createRect(p: Project, start: { x: number; y: number }, cur: { x
   const sy0 = nearestCand(y0, cand.T, tol); if (sy0 != null) { y0 = sy0; guides.y.push(y0); }
   const sy1 = nearestCand(y1, cand.B, tol); if (sy1 != null) { y1 = sy1; guides.y.push(y1); }
   const x = Math.max(x0, bnd.minX), y = Math.max(y0, bnd.minY);
-  if (gfOn(p))
+  if (gfSnaps(p))
     return {
       rect: gfSnapEdges(p, Math.min(start.x, cur.x), Math.max(start.x, cur.x), Math.min(start.y, cur.y), Math.max(start.y, cur.y), true),
       guides: { x: [], y: [] } as Guides,

@@ -21,7 +21,7 @@ import {
   usableBounds,
   binLevel,
 } from '@/lib/binbench/model';
-import { gfOn, gfSnapEdges, gfSnapHeight, gridfinityValues } from '@/lib/binbench/gridfinity';
+import { gfOn, gfSnapEdges, gfSnapHeight, gfSnaps, gridfinityValues, setWholeCells } from '@/lib/binbench/gridfinity';
 import { downloadBin3MF, downloadBinSTL, triggerDownload } from '@/lib/binbench/exporters';
 import { loadProjectText, projectFileName, serializeProject } from '@/lib/binbench/project-io';
 import { type Draft, type Editing, clampDividers, cloneDraft, draftLevel, setDraftSize } from './draft';
@@ -43,6 +43,8 @@ const PICKER_TYPES = [{ description: 'Bin Bench project', accept: { 'application
 
 type Clip = Pick<Bin, 'w' | 'd' | 'heightMM' | 'label' | 'dividersX' | 'dividersY'>;
 
+const HISTORY_LIMIT = 80;
+
 // Gridfinity mode owns the grid and the socket profile outright, so its values are
 // re-stamped after every change — the magnet baseplate, for one, makes the plate
 // taller. Off, the only rule is that the pocket is cut into the plate, so the plate
@@ -61,6 +63,14 @@ export default function BinBenchApp() {
   const [lengthUnit, setLengthUnit] = useState<LengthUnit>(() => (safeLocalGet('binBenchUnit') === 'in' ? 'in' : 'mm'));
   const units = useMemo(() => makeUnits(lengthUnit), [lengthUnit]);
   const [dirty, setDirty] = useState(false);
+  // Undo keeps whole project snapshots. Everything that changes the drawer already
+  // goes through commitProject, so there is one place to record them, and a project is
+  // only ever replaced rather than edited in place, so a snapshot stays good.
+  const [past, setPast] = useState<Project[]>([]);
+  const [future, setFuture] = useState<Project[]>([]);
+  // consecutive edits to the same field collapse into one step, so typing a name is
+  // one undo rather than one per keystroke
+  const mergeKey = useRef<string | null>(null);
   const fileHandle = useRef<FileHandle>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [status, setStatusState] = useState({ msg: '', err: false });
@@ -87,11 +97,39 @@ export default function BinBenchApp() {
     if (msg) statusTimer.current = setTimeout(() => setStatusState((s) => (s.msg === msg ? { msg: '', err: false } : s)), 4000);
   }, []);
 
-  const commitProject = useCallback((next: Project) => {
+  const commitProject = (next: Project, merge?: string) => {
+    const keep = merge != null && merge === mergeKey.current && past.length > 0;
+    if (!keep) setPast([...past, p].slice(-HISTORY_LIMIT));
+    mergeKey.current = merge ?? null;
+    if (future.length) setFuture([]);
     setProject(normalize(next));
     setDirty(true);
-  }, []);
-  const update = (patch: Partial<Project>) => commitProject({ ...p, ...patch });
+  };
+  const update = (patch: Partial<Project>, merge?: string) => commitProject({ ...p, ...patch }, merge);
+
+  const step = (back: boolean) => {
+    if (back ? !past.length : !future.length) return;
+    const landing = back ? past[past.length - 1] : future[0];
+    if (back) {
+      setPast(past.slice(0, -1));
+      setFuture([p, ...future].slice(0, HISTORY_LIMIT));
+    } else {
+      setFuture(future.slice(1));
+      setPast([...past, p].slice(-HISTORY_LIMIT));
+    }
+    mergeKey.current = null;
+    setProject(landing);
+    setDirty(true);
+    // the open editor holds a draft of a bin that may have just changed under it
+    closeEditor();
+  };
+  const undo = () => step(true);
+  const redo = () => step(false);
+  const resetHistory = () => {
+    setPast([]);
+    setFuture([]);
+    mergeKey.current = null;
+  };
   const closeEditor = () => {
     setEditing(null);
     setDraft(null);
@@ -112,7 +150,7 @@ export default function BinBenchApp() {
   const commitEditor = () => {
     if (!draft || !editing) return;
     const d = cloneDraft(draft);
-    if (gfOn(p)) {
+    if (gfSnaps(p)) {
       // whole cells and whole height units, whatever was typed
       const r = gfSnapEdges(p, d.x, d.x + d.w, d.y, d.y + d.d, false);
       setDraftSize(d, r.w, r.d);
@@ -123,7 +161,7 @@ export default function BinBenchApp() {
     clampDividers(d, p.wall);
     const bnd = usableBounds(p);
     let w = Math.max(1, d.w), dd = Math.max(1, d.d);
-    const h = gfOn(p) ? Math.max(1, d.heightMM) : Math.max(1, Math.round(d.heightMM));
+    const h = gfSnaps(p) ? Math.max(1, d.heightMM) : Math.max(1, Math.round(d.heightMM));
     // clamp the footprint into the usable drawer so it can never "extend outside"
     const x = Math.min(Math.max(d.x, bnd.minX), bnd.maxX - 1);
     const y = Math.min(Math.max(d.y, bnd.minY), bnd.maxY - 1);
@@ -284,6 +322,7 @@ export default function BinBenchApp() {
     try {
       const r = loadProjectText(text, source, p);
       setProject(normalize(r.project));
+      resetHistory();
       closeEditor();
       setActiveLevel(1);
       fileHandle.current = handle;
@@ -335,8 +374,21 @@ export default function BinBenchApp() {
     if (!mod || tourOpen) return;
     const k = e.key.toLowerCase();
     if (k === 's') { e.preventDefault(); void save(); return; }
+    // inside a field, leave undo and copy to the field itself
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement)?.tagName || '');
-    if (typing || window.getSelection()?.toString()) return;
+    if (typing) return;
+    if (k === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if (k === 'y') {
+      e.preventDefault();
+      redo();
+      return;
+    }
+    if (window.getSelection()?.toString()) return;
     if (k === 'c') {
       // copy the bin open in the editor, else the last-added bin
       const bin = editing?.mode === 'edit' ? binById(p, editing.id) : p.bins[p.bins.length - 1];
@@ -386,7 +438,10 @@ export default function BinBenchApp() {
             onSTL={(b) => downloadBinSTL(p, b)} on3MF={(b) => void downloadBin3MF(p, b)} onRemove={removeBin}
             onClear={() => { commitProject({ ...p, bins: [], blocked: [] }); closeEditor(); }} />
           <ObstructionList project={p} units={units} onAdd={() => addObstruction()}
-            onChange={(id, patch) => commitProject({ ...p, blocked: p.blocked.map((b) => (b.id === id ? { ...b, ...patch } : b)) })}
+            onChange={(id, patch) => commitProject(
+              { ...p, blocked: p.blocked.map((b) => (b.id === id ? { ...b, ...patch } : b)) },
+              'block' + id + Object.keys(patch).join(),
+            )}
             onDelete={(id) => commitProject({ ...p, blocked: p.blocked.filter((b) => b.id !== id) })} />
           <ShelfList project={p} units={units} onRestore={restoreShelved}
             onDelete={(id) => commitProject({ ...p, shelvedBins: p.shelvedBins.filter((s) => s.shelfId !== id) })} />
@@ -432,6 +487,23 @@ export default function BinBenchApp() {
                   ? here + ' bin(s) on the drawer floor'
                   : here + ' bin(s) stacked here · must span a level ' + (activeLevel - 1) + ' bin wall to wall'}
               </span>
+              {gfOn(p) && (
+                <label
+                  className="flex cursor-pointer items-center gap-1.5 text-[11px]"
+                  style={{ color: 'var(--bb-dim)' }}
+                  title="Hold bins to whole 42mm cells and whole 7mm height units. Off, they can be any size and grow trimmed feet."
+                >
+                  <input type="checkbox" className="checkbox checkbox-xs checkbox-primary" checked={gfSnaps(p)}
+                    onChange={(e) => commitProject(setWholeCells(p, e.target.checked))} />
+                  Whole cells only
+                </label>
+              )}
+              <div className="ml-auto flex gap-1.5">
+                <button type="button" className="bb-btn bb-btn-xs" disabled={!past.length} onClick={undo}
+                  title="Undo (Ctrl/Cmd+Z)" aria-label="Undo">↶ Undo</button>
+                <button type="button" className="bb-btn bb-btn-xs" disabled={!future.length} onClick={redo}
+                  title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo">↷ Redo</button>
+              </div>
             </div>
             <DrawerCanvas
               project={p} units={units} mode={mode} activeLevel={activeLevel} draft={draft} editing={editing}

@@ -43,7 +43,8 @@ export function serializeProject(p: Project) {
       baseplateEnabled: p.baseplateEnabled, baseThick: p.baseThick,
       footH: p.footH, footTaper: p.footTaper, fitClear: p.fitClear, ringW: p.ringW,
       stackGap: p.stackGap, paperGrid: p.paperGrid,
-      gridfinity: !!p.gridfinity, gfMagnets: !!p.gfMagnets, gfPlateMagnets: !!p.gfPlateMagnets,
+      gridfinity: !!p.gridfinity, gfWholeCells: !!p.gfWholeCells,
+      gfMagnets: !!p.gfMagnets, gfPlateMagnets: !!p.gfPlateMagnets,
       customBp: p.customBp || null,
       bins, blocked, shelvedBins,
       binCounter: p.binCounter, blockCounter: p.blockCounter, shelfCounter: p.shelfCounter,
@@ -142,6 +143,9 @@ export function loadProjectText(text: string, sourceName: string, current: Proje
   if (data.baseplateEnabled != null) p.baseplateEnabled = !!data.baseplateEnabled;
   // Gridfinity mode, and the custom socket it parked — both absent from older files
   p.gridfinity = !!data.gridfinity;
+  // absent in files written before the snapping could be turned off, and those were
+  // all drawn on whole cells
+  p.gfWholeCells = data.gfWholeCells == null ? true : !!data.gfWholeCells;
   p.gfMagnets = !!data.gfMagnets;
   p.gfPlateMagnets = !!data.gfPlateMagnets;
   p.customBp = data.customBp && typeof data.customBp === 'object' ? (data.customBp as CustomBp) : null;
