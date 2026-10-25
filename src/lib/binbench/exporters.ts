@@ -7,6 +7,7 @@ import {
   type MeshObject,
   type Plate,
   type Tri,
+  type Vec3,
   binTriangles,
   computeBaseplateTiles,
   packPlates,
@@ -72,11 +73,27 @@ function build3MFModelXML(objects: MeshObject[]) {
   const build: string[] = [];
   objects.forEach((obj) => {
     const vtx: string[] = [], tri: string[] = [];
-    let vi = 0;
+    // Weld the corners. STL is a bag of loose facets and our triangles arrive the same
+    // way, but 3MF is indexed: give every triangle three vertices of its own and no
+    // two of them share one, so a slicer counts every edge as open — Bambu reports
+    // "3 × triangles open edges" and sends you off to repair the model. Welding on the
+    // printed coordinate makes the match exact, since that is what lands in the file.
+    const index = new Map<string, number>();
+    const at = (p: Vec3) => {
+      const x = p[0].toFixed(4), y = p[1].toFixed(4), z = p[2].toFixed(4);
+      const k = x + ' ' + y + ' ' + z;
+      let i = index.get(k);
+      if (i === undefined) {
+        i = index.size;
+        index.set(k, i);
+        vtx.push(`<vertex x="${x}" y="${y}" z="${z}"/>`);
+      }
+      return i;
+    };
     obj.tris.forEach((t) => {
-      t.forEach((p) => vtx.push(`<vertex x="${p[0].toFixed(4)}" y="${p[1].toFixed(4)}" z="${p[2].toFixed(4)}"/>`));
-      tri.push(`<triangle v1="${vi}" v2="${vi + 1}" v3="${vi + 2}"/>`);
-      vi += 3;
+      const a = at(t[0]), b = at(t[1]), c = at(t[2]);
+      // a triangle whose corners weld together has no area left to print
+      if (a !== b && b !== c && a !== c) tri.push(`<triangle v1="${a}" v2="${b}" v3="${c}"/>`);
     });
     resources.push(
       `<object id="${obj.id}" type="model"><mesh><vertices>${vtx.join('')}</vertices><triangles>${tri.join('')}</triangles></mesh></object>`,
