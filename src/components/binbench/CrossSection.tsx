@@ -260,8 +260,9 @@ function GridfinitySection({ project: p, units, on }: { project: Project; units:
         />
       </Svg>
       <Caption>
-        Two bins meeting over one wall of the plate. The wall's top is a {units.fine(land)} flat rather than the knife edge stock
-        Gridfinity leaves there — it prints cleanly and doesn't chip, and the foot is pulled in to match so it still drops past.
+        Two bins meeting over one wall of the plate. Stock Gridfinity carries this chamfer on to a knife edge, which chips; the plate
+        stops where it is {units.fine(land)} across instead. Nothing else moves — every dimension below the cut is the published one, so
+        stock bins and stock plates still fit.
       </Caption>
     </>
   );
