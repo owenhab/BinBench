@@ -47,6 +47,26 @@ export function trisToSTL(tris: Tri[], name: string) {
   return parts.join('');
 }
 
+// Studio's own files carry this whole block; the Application line is the one that
+// matters (its importer sets m_is_bbl_3mf only when the string starts with
+// "BambuStudio-", and without that it loads the file as a foreign 3mf, re-centring
+// everything on one plate), but the rest costs nothing and keeps us in step with what
+// it writes for itself.
+function modelMetadata() {
+  const day = new Date().toISOString().slice(0, 10);
+  return (
+    '<metadata name="Application">BambuStudio-02.07.01.62</metadata>' +
+    '<metadata name="BambuStudio:3mfVersion">1</metadata>' +
+    '<metadata name="CreationDate">' + day + '</metadata>' +
+    '<metadata name="ModificationDate">' + day + '</metadata>' +
+    '<metadata name="Copyright"></metadata>' +
+    '<metadata name="Description"></metadata>' +
+    '<metadata name="Designer"></metadata>' +
+    '<metadata name="License"></metadata>' +
+    '<metadata name="Title"></metadata>'
+  );
+}
+
 function build3MFModelXML(objects: MeshObject[]) {
   const resources: string[] = [];
   const build: string[] = [];
@@ -66,15 +86,7 @@ function build3MFModelXML(objects: MeshObject[]) {
       `<item objectid="${obj.id}" transform="1 0 0 0 1 0 0 0 1 ${tx.toFixed(3)} ${ty.toFixed(3)} ${tz.toFixed(3)}" printable="1"/>`,
     );
   });
-  // Bambu Studio decides whether a 3MF is one of its own by this one piece of
-  // metadata: its importer sets m_is_bbl_3mf only when the Application string starts
-  // with "BambuStudio-". Without it the file goes down the "3mf from another vendor"
-  // path, which throws the plate assignment away and drops everything on plate 1 —
-  // so the plate tagging below is only read if this line is here.
-  const head =
-    '<metadata name="Application">BambuStudio-01.10.00.00</metadata>' +
-    '<metadata name="BambuStudio:3mfVersion">1</metadata>';
-  return `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">${head}<resources>${resources.join('')}</resources><build>${build.join('')}</build></model>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">${modelMetadata()}<resources>${resources.join('')}</resources><build>${build.join('')}</build></model>`;
 }
 
 export async function download3MF(objects: MeshObject[], filename: string, extras?: Record<string, string>) {
@@ -126,14 +138,21 @@ export function centreOnBed(bed: { x: number; y: number }, w: number, d: number)
 // which plate. Slicers that don't know it ignore it and just see all the objects,
 // which is why the plates are also spread out in space rather than piled on origin.
 function bambuPlateConfig(objects: MeshObject[]) {
+  const IDENTITY16 = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1';
   let s = '<?xml version="1.0" encoding="UTF-8"?>\n<config>\n';
   objects.forEach((o) => {
+    const name = xmlEsc(o.name || '');
+    const faces = o.tris.length;
     s +=
       '  <object id="' + o.id + '">\n' +
-      '    <metadata key="name" value="' + xmlEsc(o.name || '') + '"/>\n' +
+      '    <metadata key="name" value="' + name + '"/>\n' +
       '    <metadata key="extruder" value="1"/>\n' +
+      '    <metadata face_count="' + faces + '"/>\n' +
       '    <part id="' + o.id + '" subtype="normal_part">\n' +
-      '      <metadata key="name" value="' + xmlEsc(o.name || '') + '"/>\n' +
+      '      <metadata key="name" value="' + name + '"/>\n' +
+      '      <metadata key="matrix" value="' + IDENTITY16 + '"/>\n' +
+      '      <mesh_stat face_count="' + faces + '" edges_fixed="0" degenerate_facets="0"' +
+      ' facets_removed="0" facets_reversed="0" backwards_edges="0"/>\n' +
       '    </part>\n' +
       '  </object>\n';
   });
@@ -150,7 +169,8 @@ function bambuPlateConfig(objects: MeshObject[]) {
         '  <plate>\n' +
         '    <metadata key="plater_id" value="' + (pn + 1) + '"/>\n' +
         '    <metadata key="plater_name" value=""/>\n' +
-        '    <metadata key="locked" value="false"/>\n';
+        '    <metadata key="locked" value="false"/>\n' +
+        '    <metadata key="filament_map_mode" value="Auto For Flush"/>\n';
       byPlate.get(pn)!.forEach((o) => {
         s +=
           '    <model_instance>\n' +
@@ -162,6 +182,15 @@ function bambuPlateConfig(objects: MeshObject[]) {
       });
       s += '  </plate>\n';
     });
+  // Studio repeats each instance's placement here; its own files always carry it
+  s += '  <assemble>\n';
+  objects.forEach((o) => {
+    const [tx, ty, tz] = o.transform || [0, 0, 0];
+    s +=
+      '   <assemble_item object_id="' + o.id + '" instance_id="0" transform="1 0 0 0 1 0 0 0 1 ' +
+      tx.toFixed(3) + ' ' + ty.toFixed(3) + ' ' + tz.toFixed(3) + '" offset="0 0 0" />\n';
+  });
+  s += '  </assemble>\n';
   return s + '</config>\n';
 }
 
