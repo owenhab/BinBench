@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { type Project, divH, evenDividers, usableBounds } from '@/lib/binbench/model';
-import { GF, gfOn, gfSnapEdges, gfUnitsFor } from '@/lib/binbench/gridfinity';
+import { GF, gfSnapEdges, gfSnaps, gfUnitsFor } from '@/lib/binbench/gridfinity';
 import { type Draft, type Editing, addDivider, clampDividers, cloneDraft, setDraftSize } from './draft';
 import { LengthField, UnitSuffix } from './fields';
 import { ORIGIN_X, ORIGIN_Y } from './DrawerCanvas';
@@ -145,7 +145,7 @@ export default function BinEditor({ project: p, units, draft, editing, level, er
 
   // what the typed footprint and height will become once they land on the grid
   let gfHint = '';
-  if (gfOn(p)) {
+  if (gfSnaps(p)) {
     const r = gfSnapEdges(p, draft.x, draft.x + draft.w, draft.y, draft.y + draft.d, false);
     const cells = (v: number) => String(+((v + 2 * GF.clear) / GF.pitch).toFixed(2));
     gfHint = 'Gridfinity ' + cells(r.w) + '×' + cells(r.d);

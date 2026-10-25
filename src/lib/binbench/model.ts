@@ -1,7 +1,7 @@
 // Core data model and layout rules for Bin Bench. Every length here is in mm — the
 // unit toggle only changes how values are displayed, never what is stored.
 
-import { GF, baseRestZ, gfLines, gfOn, gfSnapRect, minGapEff } from './gridfinity';
+import { GF, baseRestZ, gfLines, gfSnapRect, gfSnaps, minGapEff } from './gridfinity';
 
 /** A divider is {p, a, b, h}: p = position along its own axis, [a,b] = the span it
  *  covers along the perpendicular axis, h = its height. h == null means "full
@@ -81,6 +81,8 @@ export interface Project {
   stackGap: number;
   paperGrid: number;
   gridfinity: boolean;
+  /** hold bins to whole 42 mm cells and whole 7 mm height units */
+  gfWholeCells: boolean;
   gfMagnets: boolean;
   gfPlateMagnets: boolean;
   customBp: CustomBp | null;
@@ -137,6 +139,7 @@ export function defaultProject(): Project {
     stackGap: 1.0,
     paperGrid: 10,
     gridfinity: true,
+    gfWholeCells: true,
     gfMagnets: false,
     gfPlateMagnets: false,
     customBp: null,
@@ -480,7 +483,7 @@ export function snapMove(
   y = Math.min(Math.max(y, bnd.minY), bnd.maxY - rect.d);
   // Gridfinity drops the bin on the nearest run of cells instead, so the edge guides
   // have nothing left to say
-  if (gfOn(p)) {
+  if (gfSnaps(p)) {
     const r = gfSnapRect(p, { x: origX + dx, y: origY + dy, w: rect.w, d: rect.d });
     return { x: r.x, y: r.y, guides: { x: [], y: [] } };
   }
@@ -517,7 +520,7 @@ export function findFreeSlot(p: Project, w: number, d: number, hintX: number | n
   const maxX = bnd.maxX - w,
     maxY = bnd.maxY - d;
   if (maxX < bnd.minX || maxY < bnd.minY) return null;
-  if (gfOn(p)) {
+  if (gfSnaps(p)) {
     // only runs of cells that give exactly this footprint
     const { X, Y } = gfLines(p), c = GF.clear;
     for (let j = 0; j < Y.length - 1; j++)

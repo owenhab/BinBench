@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { type Project, PRINTERS, usableBounds } from '@/lib/binbench/model';
-import { GF, gfFloorH, gfOn, setGridfinity } from '@/lib/binbench/gridfinity';
+import { GF, gfFloorH, gfOn, gfSnaps, setGridfinity, setWholeCells } from '@/lib/binbench/gridfinity';
 import { type PaperSize, printTemplate } from '@/lib/binbench/template';
 import { LengthField, Panel, UnitSuffix } from './fields';
 import { type Highlight, PlateCrossSection, WallsCrossSection } from './CrossSection';
@@ -239,14 +239,28 @@ export function AdvancedPanels({
           <PlateCrossSection project={p} units={units} on={hot} />
           <div className="mb-2 flex flex-wrap gap-x-3.5 gap-y-1.5">
             <CheckRow label="Gridfinity standard" checked={gf} onChange={(on) => update(setGridfinity(p, on))} />
+            <CheckRow label="Whole cells only" checked={gfSnaps(p)} disabled={!gf} onChange={(v) => update(setWholeCells(p, v))} />
             <CheckRow label="Magnet holes in bins" checked={p.gfMagnets} disabled={!gf} onChange={(v) => update({ gfMagnets: v })} />
             <CheckRow label="Magnet baseplate" checked={p.gfPlateMagnets} disabled={!gf} onChange={(v) => update({ gfPlateMagnets: v })} />
           </div>
           <p className="bb-hint mb-2">
             {gf ? (
               <>
-                Gridfinity on: 42 mm grid, bins snap to whole cells (42n − 0.5 mm) and whole 7 mm height units. The plate uses the
-                standard pocket and the bins the standard foot, so they mix with any other Gridfinity parts.{' '}
+                Gridfinity on: 42 mm grid, the plate uses the standard pocket and the bins the standard foot, so they mix with any
+                other Gridfinity parts.{' '}
+                {gfSnaps(p) ? (
+                  <>
+                    <b>Whole cells only:</b> bins snap to whole cells (42n − 0.5 mm) and whole 7 mm height units, so every bin is a
+                    true Gridfinity size. Turn it off to size bins freely.{' '}
+                  </>
+                ) : (
+                  <>
+                    <b>Free sizing:</b> bins can be any size and any height. They still grow the standard foot on every cell they
+                    reach, trimmed back to their own outline where their edge cuts through one, so they drop into the same plate —
+                    they just aren't whole Gridfinity sizes any more, and a bin narrower than about {units.fine(2 * GF.clear + 2.25)}{' '}
+                    across a cell gets no foot there at all.{' '}
+                  </>
+                )}
                 {p.gfPlateMagnets && (
                   <>
                     Magnet baseplate: a skeleton floor under the pockets (1 mm skin + 2.4 mm) with a 6.5 mm magnet pocket under each bin

@@ -21,7 +21,7 @@ import {
   usableBounds,
   binLevel,
 } from '@/lib/binbench/model';
-import { gfOn, gfSnapEdges, gfSnapHeight, gridfinityValues } from '@/lib/binbench/gridfinity';
+import { gfOn, gfSnapEdges, gfSnapHeight, gfSnaps, gridfinityValues } from '@/lib/binbench/gridfinity';
 import { downloadBin3MF, downloadBinSTL, triggerDownload } from '@/lib/binbench/exporters';
 import { loadProjectText, projectFileName, serializeProject } from '@/lib/binbench/project-io';
 import { type Draft, type Editing, clampDividers, cloneDraft, draftLevel, setDraftSize } from './draft';
@@ -112,7 +112,7 @@ export default function BinBenchApp() {
   const commitEditor = () => {
     if (!draft || !editing) return;
     const d = cloneDraft(draft);
-    if (gfOn(p)) {
+    if (gfSnaps(p)) {
       // whole cells and whole height units, whatever was typed
       const r = gfSnapEdges(p, d.x, d.x + d.w, d.y, d.y + d.d, false);
       setDraftSize(d, r.w, r.d);
@@ -123,7 +123,7 @@ export default function BinBenchApp() {
     clampDividers(d, p.wall);
     const bnd = usableBounds(p);
     let w = Math.max(1, d.w), dd = Math.max(1, d.d);
-    const h = gfOn(p) ? Math.max(1, d.heightMM) : Math.max(1, Math.round(d.heightMM));
+    const h = gfSnaps(p) ? Math.max(1, d.heightMM) : Math.max(1, Math.round(d.heightMM));
     // clamp the footprint into the usable drawer so it can never "extend outside"
     const x = Math.min(Math.max(d.x, bnd.minX), bnd.maxX - 1);
     const y = Math.min(Math.max(d.y, bnd.minY), bnd.maxY - 1);

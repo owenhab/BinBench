@@ -11,7 +11,7 @@ import {
   lipGeometry,
   usableBounds,
 } from './model';
-import { GF, GF_ARC, gfFloorH, gfOn } from './gridfinity';
+import { GF, GF_ARC, gfFloorH, gfOn, gfSnaps } from './gridfinity';
 
 export type Vec3 = [number, number, number];
 export type Tri = [Vec3, Vec3, Vec3];
@@ -628,10 +628,14 @@ export interface GfFootCell {
   cy: number;
   partial: boolean;
 }
-/** Gridfinity feet: one per whole cell the bin covers (a snapped bin covers its cells
- *  exactly). On the plate a cell also needs a pocket under it to count. */
+/** Gridfinity feet, one per cell the bin reaches into. With the snapping on a bin
+ *  covers its cells exactly and every foot is the whole standard one; with it off the
+ *  bin's edge cuts through cells, and those feet are the standard foot trimmed back to
+ *  the bin's own outline — still on the grid, so they drop into the same pockets. On
+ *  the plate a cell also needs a pocket under it to count. */
 export function gfFootCellsFor(p: Project, bin: Bin): GfFootCell[] {
   const ctx = gridContext(p), P = GF.pitch;
+  const whole = gfSnaps(p);
   const onPlate = bin.parentId == null && p.baseplateEnabled;
   const ox = ctx.bnd.minX, oy = ctx.bnd.minY;
   const cells: GfFootCell[] = [];
@@ -642,15 +646,23 @@ export function gfFootCellsFor(p: Project, bin: Bin): GfFootCell[] {
       const cx0 = ox + i * P, cy0 = oy + j * P;
       // the cell as the drawer actually has it — a part cell at the far wall is short
       const cw = Math.min(cx0 + P, ctx.bnd.maxX) - cx0, cd = Math.min(cy0 + P, ctx.bnd.maxY) - cy0;
-      const cov =
-        (Math.min(cx0 + P, bin.x + bin.w) - Math.max(cx0, bin.x)) * (Math.min(cy0 + P, bin.y + bin.d) - Math.max(cy0, bin.y));
       if (cw < GF.minPartial || cd < GF.minPartial) continue;
-      if (cov < (cw - 2 * GF.clear) * (cd - 2 * GF.clear) - 0.5) continue; // the bin has to fill the cell
+      // how much of the cell this bin is actually over
+      const ow = Math.min(cx0 + P, bin.x + bin.w) - Math.max(cx0, bin.x);
+      const od = Math.min(cy0 + P, bin.y + bin.d) - Math.max(cy0, bin.y);
+      if (ow <= 0 || od <= 0) continue;
+      // snapped, the bin has to fill the cell; free, it only has to leave a foot wide
+      // enough to be worth printing — narrower than that is a splinter
+      if (whole) {
+        if (ow * od < (cw - 2 * GF.clear) * (cd - 2 * GF.clear) - 0.5) continue;
+      }
+      if (ow < MIN_FOOT + 0.25 || od < MIN_FOOT + 0.25) continue;
       if (onPlate && !gridSocketAt(i, j, ctx)) continue;
-      const partial = cw < P - 0.01 || cd < P - 0.01;
-      // a trimmed foot narrower than this is a splinter, not a foot worth printing
-      if (partial && (Math.min(cx0 + P, bin.x + bin.w) - cx0 < MIN_FOOT + 0.25 || Math.min(cy0 + P, bin.y + bin.d) - cy0 < MIN_FOOT + 0.25))
-        continue;
+      // Trimmed when the drawer wall cut the cell short, or the bin doesn't reach
+      // across it. A snapped bin is 42n − 0.5, so it stands 0.25 mm back from each
+      // cell edge and still counts as spanning.
+      const spans = ow >= cw - 2 * GF.clear - 0.01 && od >= cd - 2 * GF.clear - 0.01;
+      const partial = cw < P - 0.01 || cd < P - 0.01 || !spans;
       cells.push({ i, j, lx: cx0 - bin.x, ly: cy0 - bin.y, cx: cx0 + P / 2, cy: cy0 + P / 2, partial });
     }
   return cells;

@@ -78,6 +78,13 @@ export const CUSTOM_BP_FALLBACK: CustomBp = { unit: 42, baseThick: 5, footH: 3, 
 export function gfOn(p: Project) {
   return !!p.gridfinity;
 }
+/** Whether bins are held to whole cells and whole height units. The profile is the
+ *  Gridfinity one either way — this only governs the snapping, so a free-sized bin
+ *  still grows the standard foot on whatever cells it reaches, trimmed to its own
+ *  outline, and still drops into the same plate. */
+export function gfSnaps(p: Project) {
+  return gfOn(p) && p.gfWholeCells !== false;
+}
 /** height of the magnet floor under the pockets (0 for the open frame) */
 export function gfFloorH(p: Project) {
   return p.gfPlateMagnets ? GF.skin + GF.magDepth : 0;
@@ -107,7 +114,13 @@ export function setGridfinity(p: Project, on: boolean): Project {
   };
   const on1: Project = { ...p, customBp, gridfinity: true };
   const on2: Project = { ...on1, ...gridfinityValues(on1) };
-  return { ...on2, bins: gfSnapAllBins(on2) };
+  return gfSnaps(on2) ? { ...on2, bins: gfSnapAllBins(on2) } : on2;
+}
+
+/** Turning the snapping back on brings the bins already in the drawer with it. */
+export function setWholeCells(p: Project, on: boolean): Project {
+  const next: Project = { ...p, gfWholeCells: on };
+  return gfSnaps(next) ? { ...next, bins: gfSnapAllBins(next) } : next;
 }
 
 // ---------- snapping ----------
