@@ -2,7 +2,17 @@
 // the browser download itself.
 import JSZip from 'jszip';
 import { type Bin, type Project, binName } from './model';
-import { type MeshObject, type Tri, binTriangles, computeBaseplateTiles, packPlates, placedBinTris, tileTriangles } from './geometry';
+import {
+  type Box2,
+  type MeshObject,
+  type Plate,
+  type Tri,
+  binTriangles,
+  computeBaseplateTiles,
+  packPlates,
+  placedBinTris,
+  tileTriangles,
+} from './geometry';
 
 export function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -83,6 +93,25 @@ export function downloadBin3MF(p: Project, bin: Bin) {
 const xmlEsc = (s: string) =>
   String(s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
 
+// Bambu Studio lays its plates out in world space in a grid — ceil(sqrt(n)) columns
+// wide, each cell one bed plus a fifth of a bed of gap, rows running back in −Y — and
+// stores every object at its plate-local position plus that plate's origin. Put an
+// object anywhere else and Studio opens it straddling a plate boundary, which is what
+// a plain "spread them along X" layout does. From BambuStudio's own
+// PartPlateList::compute_shape_position / plate_stride_x.
+const PLATE_GAP = 1 / 5;
+export function plateOrigin(index: number, count: number, bed: { x: number; y: number }) {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+  return {
+    x: (index % cols) * bed.x * (1 + PLATE_GAP),
+    y: -Math.floor(index / cols) * bed.y * (1 + PLATE_GAP),
+  };
+}
+/** Centre a w×d footprint on the bed, so nothing sits against the plate edge. */
+export function centreOnBed(bed: { x: number; y: number }, w: number, d: number) {
+  return { x: Math.max(0, (bed.x - w) / 2), y: Math.max(0, (bed.y - d) / 2) };
+}
+
 // Bambu Studio's own addition to the 3MF: a side file saying which objects belong on
 // which plate. Slicers that don't know it ignore it and just see all the objects,
 // which is why the plates are also spread out in space rather than piled on origin.
@@ -117,6 +146,8 @@ function bambuPlateConfig(objects: MeshObject[]) {
           '    <model_instance>\n' +
           '      <metadata key="object_id" value="' + o.id + '"/>\n' +
           '      <metadata key="instance_id" value="0"/>\n' +
+          // Studio gives every instance one of these; it only has to be unique
+          '      <metadata key="identify_id" value="' + o.id * 10 + '"/>\n' +
           '    </model_instance>\n';
       });
       s += '  </plate>\n';
@@ -128,21 +159,24 @@ function bambuPlateConfig(objects: MeshObject[]) {
 export async function downloadAllPlates3MF(p: Project): Promise<{ msg: string; err: boolean }> {
   if (!p.bins.length) return { msg: 'No bins to export yet.', err: true };
   const plates = packPlates(p);
-  const spread = p.bed.x + 20; // plates side by side for slicers that ignore the tagging
   const objects: MeshObject[] = [];
   let id = 0, oversize = 0;
   plates.forEach((plate, k) => {
-    plate.forEach((pl) => {
-      if (pl.oversize) {
-        oversize++;
-        return;
-      }
+    const live = plate.filter((pl) => !pl.oversize);
+    oversize += plate.length - live.length;
+    // the packed bins start at the near corner, so shift the whole lot to the middle
+    // of the bed before dropping it on its plate
+    const packW = live.reduce((m, pl) => Math.max(m, pl.x + pl.w), 0);
+    const packD = live.reduce((m, pl) => Math.max(m, pl.y + pl.d), 0);
+    const mid = centreOnBed(p.bed, packW, packD);
+    const org = plateOrigin(k, plates.length, p.bed);
+    live.forEach((pl) => {
       objects.push({
         id: ++id,
         plate: k,
         name: binName(pl.bin) + ' (plate ' + (k + 1) + ')',
         tris: placedBinTris(p, pl),
-        transform: [k * spread + pl.x, pl.y, 0],
+        transform: [org.x + mid.x + pl.x, org.y + mid.y + pl.y, 0],
       });
     });
   });
@@ -164,14 +198,17 @@ export async function downloadAllPlates3MF(p: Project): Promise<{ msg: string; e
 export async function downloadAllSections3MF(p: Project): Promise<{ msg: string; err: boolean }> {
   const { tiles, plate } = computeBaseplateTiles(p);
   if (!tiles.length) return { msg: 'There are no baseplate sections to export.', err: true };
-  const spread = p.bed.x + 20; // sections side by side for slicers that ignore the tagging
-  const objects: MeshObject[] = tiles.map((tile, k) => ({
-    id: k + 1,
-    plate: k,
-    name: 'Baseplate section ' + (k + 1),
-    tris: tileTriangles(p, tile, plate),
-    transform: [k * spread, 0, 0],
-  }));
+  const objects: MeshObject[] = tiles.map((tile, k) => {
+    const org = plateOrigin(k, tiles.length, p.bed);
+    const mid = centreOnBed(p.bed, tile.x1 - tile.x0, tile.y1 - tile.y0);
+    return {
+      id: k + 1,
+      plate: k,
+      name: 'Baseplate section ' + (k + 1),
+      tris: tileTriangles(p, tile, plate),
+      transform: [org.x + mid.x, org.y + mid.y, 0] as [number, number, number],
+    };
+  });
   await download3MF(objects, safeFileName(p.projectName) + '_baseplates', {
     'Metadata/model_settings.config': bambuPlateConfig(objects),
   });
@@ -179,7 +216,25 @@ export async function downloadAllSections3MF(p: Project): Promise<{ msg: string;
 }
 
 export function downloadPlate3MF(p: Project, plateIdx: number) {
-  const plate = packPlates(p)[plateIdx] || [];
-  const objects = plate.map((pl, i) => ({ id: i + 1, tris: placedBinTris(p, pl), transform: [pl.x, pl.y, 0] as [number, number, number] }));
+  const plate = (packPlates(p)[plateIdx] || []).filter((pl) => !pl.oversize);
+  const mid = centreOnBed(
+    p.bed,
+    plate.reduce((m, pl) => Math.max(m, pl.x + pl.w), 0),
+    plate.reduce((m, pl) => Math.max(m, pl.y + pl.d), 0),
+  );
+  const objects = plate.map((pl, i) => ({
+    id: i + 1,
+    tris: placedBinTris(p, pl),
+    transform: [mid.x + pl.x, mid.y + pl.y, 0] as [number, number, number],
+  }));
   return download3MF(objects, 'plate_' + (plateIdx + 1));
+}
+
+/** One baseplate section on its own, sitting in the middle of the bed. */
+export function downloadSection3MF(p: Project, tile: Box2, plate: Plate, idx: number) {
+  const mid = centreOnBed(p.bed, tile.x1 - tile.x0, tile.y1 - tile.y0);
+  return download3MF(
+    [{ id: 1, tris: tileTriangles(p, tile, plate), transform: [mid.x, mid.y, 0] }],
+    'baseplate_plate_' + (idx + 1),
+  );
 }
