@@ -1,6 +1,8 @@
 // Core data model and layout rules for Bin Bench. Every length here is in mm — the
 // unit toggle only changes how values are displayed, never what is stored.
 
+import { GF, baseRestZ, gfLines, gfOn, gfSnapRect, minGapEff } from './gridfinity';
+
 /** A divider is {p, a, b, h}: p = position along its own axis, [a,b] = the span it
  *  covers along the perpendicular axis, h = its height. h == null means "full
  *  height" and tracks the bin's height. */
@@ -47,6 +49,16 @@ export interface ShelvedBin {
   dividersY: Divider[];
 }
 
+/** The custom socket settings Gridfinity mode parks while it is on. */
+export interface CustomBp {
+  unit: number;
+  baseThick: number;
+  footH: number;
+  footTaper: number;
+  fitClear: number;
+  ringW: number;
+}
+
 export interface Project {
   projectName: string;
   bed: { x: number; y: number; z: number };
@@ -68,6 +80,10 @@ export interface Project {
   ringW: number;
   stackGap: number;
   paperGrid: number;
+  gridfinity: boolean;
+  gfMagnets: boolean;
+  gfPlateMagnets: boolean;
+  customBp: CustomBp | null;
   bins: Bin[];
   blocked: Obstruction[];
   shelvedBins: ShelvedBin[];
@@ -120,6 +136,10 @@ export function defaultProject(): Project {
     ringW: 2.5,
     stackGap: 1.0,
     paperGrid: 10,
+    gridfinity: false,
+    gfMagnets: false,
+    gfPlateMagnets: false,
+    customBp: null,
     bins: [],
     blocked: [],
     shelvedBins: [],
@@ -343,7 +363,7 @@ export function binFootH(p: Project, bin: Bin) {
 export function binBaseZ(p: Project, bin: Bin): number {
   const parent = bin.parentId != null ? binById(p, bin.parentId) : null;
   if (parent) return binTopZ(p, parent) - lipGeometry(p).depth;
-  return p.baseplateEnabled ? Math.max(0, p.baseThick - p.footH) : 0;
+  return baseRestZ(p);
 }
 /** z of the top of a bin's rim */
 export function binTopZ(p: Project, bin: Bin): number {
@@ -356,21 +376,21 @@ export function obstructionH(p: Project, bl: Obstruction) {
 }
 /** base z shared by every bin on a level, using the tallest stack below as reference */
 export function levelBaseZ(p: Project, level: number): number {
-  if (level <= 1) return p.baseplateEnabled ? Math.max(0, p.baseThick - p.footH) : 0;
+  if (level <= 1) return baseRestZ(p);
   const below = binsAtLevel(p, level - 1);
   if (!below.length) return levelBaseZ(p, level - 1);
   return Math.min(...below.map((b) => binBaseZ(p, b) + p.floor + b.heightMM));
 }
 /** An obstruction only blocks what it can actually reach. */
 export function blockedAtLevel(p: Project, rect: Rect, level: number) {
-  const g = p.minGap;
+  const g = minGapEff(p);
   const grown = { x: rect.x - g, y: rect.y - g, w: rect.w + 2 * g, d: rect.d + 2 * g };
   const baseZ = levelBaseZ(p, level || 1);
   return p.blocked.some((bl) => obstructionH(p, bl) > baseZ + 0.01 && rectsOverlap(grown, bl));
 }
 /** Bins may touch down to the minimum gap, but no closer. Only bins sharing a level collide. */
 export function collidesAny(p: Project, rect: Rect, excludeId: number | null, level: number) {
-  const g = p.minGap;
+  const g = minGapEff(p);
   const lv = level || 1;
   const grown = { x: rect.x - g, y: rect.y - g, w: rect.w + 2 * g, d: rect.d + 2 * g };
   for (const b of p.bins) {
@@ -458,6 +478,12 @@ export function snapMove(
   }
   x = Math.min(Math.max(x, bnd.minX), bnd.maxX - rect.w);
   y = Math.min(Math.max(y, bnd.minY), bnd.maxY - rect.d);
+  // Gridfinity drops the bin on the nearest run of cells instead, so the edge guides
+  // have nothing left to say
+  if (gfOn(p)) {
+    const r = gfSnapRect(p, { x: origX + dx, y: origY + dy, w: rect.w, d: rect.d });
+    return { x: r.x, y: r.y, guides: { x: [], y: [] } };
+  }
   return { x, y, guides };
 }
 
@@ -491,6 +517,19 @@ export function findFreeSlot(p: Project, w: number, d: number, hintX: number | n
   const maxX = bnd.maxX - w,
     maxY = bnd.maxY - d;
   if (maxX < bnd.minX || maxY < bnd.minY) return null;
+  if (gfOn(p)) {
+    // only runs of cells that give exactly this footprint
+    const { X, Y } = gfLines(p), c = GF.clear;
+    for (let j = 0; j < Y.length - 1; j++)
+      for (let i = 0; i < X.length - 1; i++) {
+        const x = X[i] + c, y = Y[j] + c;
+        const i1 = X.findIndex((v) => Math.abs(v - (x + w + c)) < 0.01);
+        const j1 = Y.findIndex((v) => Math.abs(v - (y + d + c)) < 0.01);
+        if (i1 <= i || j1 <= j) continue;
+        if (!collidesAny(p, { x, y, w, d }, null, level)) return { x, y };
+      }
+    return null;
+  }
   const offsets = [
     [p.minGap + 2, p.minGap + 2],
     [w + p.minGap, 0],

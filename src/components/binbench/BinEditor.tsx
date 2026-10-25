@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { type Project, divH, evenDividers, usableBounds } from '@/lib/binbench/model';
+import { GF, gfOn, gfSnapEdges, gfUnitsFor } from '@/lib/binbench/gridfinity';
 import { type Draft, type Editing, addDivider, clampDividers, cloneDraft, setDraftSize } from './draft';
 import { LengthField, UnitSuffix } from './fields';
 import { ORIGIN_X, ORIGIN_Y } from './DrawerCanvas';
@@ -10,6 +11,8 @@ interface Props {
   units: Units;
   draft: Draft;
   editing: Editing;
+  /** which stack level this draft belongs to — only a floor bin snaps its height */
+  level: number;
   error: string;
   setError: (s: string) => void;
   onChange: (d: Draft) => void;
@@ -19,7 +22,7 @@ interface Props {
   layout: { svg: SVGSVGElement | null; scale: number };
 }
 
-export default function BinEditor({ project: p, units, draft, editing, error, setError, onChange, onCommit, onCancel, onRemove, layout }: Props) {
+export default function BinEditor({ project: p, units, draft, editing, level, error, setError, onChange, onCommit, onCancel, onRemove, layout }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: -9999, top: 0 });
   const [cols, setCols] = useState(1);
@@ -140,6 +143,19 @@ export default function BinEditor({ project: p, units, draft, editing, error, se
   };
   const nDiv = draft.dividersX.length + draft.dividersY.length;
 
+  // what the typed footprint and height will become once they land on the grid
+  let gfHint = '';
+  if (gfOn(p)) {
+    const r = gfSnapEdges(p, draft.x, draft.x + draft.w, draft.y, draft.y + draft.d, false);
+    const cells = (v: number) => String(+((v + 2 * GF.clear) / GF.pitch).toFixed(2));
+    gfHint = 'Gridfinity ' + cells(r.w) + '×' + cells(r.d);
+    if (level === 1) {
+      const un = gfUnitsFor(p, draft.heightMM);
+      gfHint += ', ' + un + 'u (' + units.fmt(un * GF.hUnit) + ' tall)';
+    }
+    gfHint += ' — sizes snap to this when saved.';
+  }
+
   return (
     <div
       ref={ref}
@@ -169,6 +185,8 @@ export default function BinEditor({ project: p, units, draft, editing, error, se
         <LengthField live label={<>Height {u}</>} value={draft.heightMM} units={units} step={1} min={1}
           onCommit={(v) => v != null && edit((n) => (n.heightMM = v))} />
       </div>
+
+      {gfHint && <p className="bb-hint mt-0 mb-2">{gfHint}</p>}
 
       <div className="bb-label mt-2.5 mb-1.5 border-t pt-2" style={{ borderColor: 'var(--bb-line)' }}>Dividers</div>
       <div className="mb-2 flex items-end gap-2">

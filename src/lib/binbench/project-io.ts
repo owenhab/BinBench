@@ -2,6 +2,7 @@
 // ever written.
 import {
   type Bin,
+  type CustomBp,
   type Divider,
   type Obstruction,
   type Project,
@@ -42,6 +43,8 @@ export function serializeProject(p: Project) {
       baseplateEnabled: p.baseplateEnabled, baseThick: p.baseThick,
       footH: p.footH, footTaper: p.footTaper, fitClear: p.fitClear, ringW: p.ringW,
       stackGap: p.stackGap, paperGrid: p.paperGrid,
+      gridfinity: !!p.gridfinity, gfMagnets: !!p.gfMagnets, gfPlateMagnets: !!p.gfPlateMagnets,
+      customBp: p.customBp || null,
       bins, blocked, shelvedBins,
       binCounter: p.binCounter, blockCounter: p.blockCounter, shelfCounter: p.shelfCounter,
     },
@@ -55,7 +58,8 @@ export function serializeProject(p: Project) {
 //   v2: {x,y,w,d} + columns/rows
 //   v3: {x,y,w,d} + dividersX/Y as plain numbers (full span)
 //   v4: {x,y,w,d} + dividersX/Y as {p,a,b} segments
-//   v5: + divider heights, bin stacking (parentId), obstruction heights
+//   v5: + divider heights, bin stacking (parentId), obstruction heights, and later
+//       Gridfinity mode — still v5, so the two Bin Bench builds read each other's files
 // Returns null if the bin can't be salvaged.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateBin(raw: any, wall: number, unit: number): Bin | null {
@@ -136,6 +140,11 @@ export function loadProjectText(text: string, sourceName: string, current: Proje
     if (data[k] != null) p[k] = numOr(data[k], p[k]);
   });
   if (data.baseplateEnabled != null) p.baseplateEnabled = !!data.baseplateEnabled;
+  // Gridfinity mode, and the custom socket it parked — both absent from older files
+  p.gridfinity = !!data.gridfinity;
+  p.gfMagnets = !!data.gfMagnets;
+  p.gfPlateMagnets = !!data.gfPlateMagnets;
+  p.customBp = data.customBp && typeof data.customBp === 'object' ? (data.customBp as CustomBp) : null;
 
   const rawBins = Array.isArray(data.bins) ? data.bins : [];
   const loaded = rawBins.map((b: unknown) => migrateBin(b, p.wall, numOr(data.unit, p.unit))).filter(Boolean) as Bin[];

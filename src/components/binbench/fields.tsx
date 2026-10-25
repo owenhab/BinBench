@@ -14,6 +14,7 @@ interface LengthFieldProps {
   plain?: boolean;
   step?: number;
   min?: number;
+  disabled?: boolean;
   className?: string;
   inputClassName?: string;
   title?: string;
@@ -23,7 +24,7 @@ interface LengthFieldProps {
 /** A number box that shows a mm value in the current display unit. Keeps its own
  *  text while focused so typing "1." or clearing the box isn't fought by re-renders. */
 export function LengthField({
-  label, value, units, onCommit, live, plain, step, min, className, inputClassName, title, placeholder,
+  label, value, units, onCommit, live, plain, step, min, disabled, className, inputClassName, title, placeholder,
 }: LengthFieldProps) {
   const id = useId();
   const shown = plain ? value : units.toDisplay(value);
@@ -54,6 +55,7 @@ export function LengthField({
         value={text}
         step={step}
         min={min}
+        disabled={disabled}
         title={title}
         placeholder={placeholder}
         onFocus={() => (focused.current = true)}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { type Project, PRINTERS, usableBounds } from '@/lib/binbench/model';
+import { GF, gfFloorH, gfOn, setGridfinity } from '@/lib/binbench/gridfinity';
 import { type PaperSize, printTemplate } from '@/lib/binbench/template';
 import { LengthField, Panel, UnitSuffix } from './fields';
 import type { LengthUnit, Units } from './units';
@@ -24,6 +25,16 @@ interface Props {
   onLoadText: (text: string) => boolean;
 }
 
+function CheckRow({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className={'flex cursor-pointer items-center gap-1.5 text-xs ' + (disabled ? 'opacity-45' : '')}>
+      <input type="checkbox" className="checkbox checkbox-xs checkbox-primary" checked={checked} disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
 export default function SettingsPanels(props: Props) {
   const { project: p, units, update } = props;
   const u = <UnitSuffix units={units} />;
@@ -32,6 +43,7 @@ export default function SettingsPanels(props: Props) {
   const [paper, setPaper] = useState<PaperSize>('letter');
   const [paperBins, setPaperBins] = useState(true);
 
+  const gf = gfOn(p);
   const bnd = usableBounds(p);
   const usedArea = p.bins.reduce((s, b) => s + b.w * b.d, 0);
   const blockedArea = p.blocked.reduce((s, b) => s + b.w * b.d, 0);
@@ -136,7 +148,8 @@ export default function SettingsPanels(props: Props) {
 
       <Panel title="Layout & walls" tour="layout">
         <div className="mb-2 flex gap-2">
-          <LengthField label={<>Grid reference {u}</>} value={p.unit} units={units} min={2} step={0.5} onCommit={(v) => update({ unit: or(v, 42) })} />
+          <LengthField label={<>Grid reference {u}</>} value={p.unit} units={units} min={2} step={0.5} disabled={gf}
+            title={gf ? 'Gridfinity mode sets the grid to 42 mm' : undefined} onCommit={(v) => update({ unit: or(v, 42) })} />
           <LengthField label={<>Snap {u}</>} value={p.snap} units={units} min={0.1} step={0.5} onCommit={(v) => update({ snap: or(v, 1) })} />
         </div>
         <div className="mb-2 flex gap-2">
@@ -165,23 +178,52 @@ export default function SettingsPanels(props: Props) {
           enable
         </label>
       }>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Plate thickness {u}</>} value={p.baseThick} units={units} min={2} step={0.5} onCommit={(v) => update({ baseThick: or(v, 5) })} />
-          <LengthField label={<>Foot height {u}</>} value={p.footH} units={units} min={1} step={0.5} onCommit={(v) => update({ footH: or(v, 3) })} />
+        <div className="mb-2 flex flex-wrap gap-x-3.5 gap-y-1.5">
+          <CheckRow label="Gridfinity standard" checked={gf} onChange={(on) => update(setGridfinity(p, on))} />
+          <CheckRow label="Magnet holes in bins" checked={p.gfMagnets} disabled={!gf} onChange={(v) => update({ gfMagnets: v })} />
+          <CheckRow label="Magnet baseplate" checked={p.gfPlateMagnets} disabled={!gf} onChange={(v) => update({ gfPlateMagnets: v })} />
         </div>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Foot taper {u}</>} value={p.footTaper} units={units} min={0.5} step={0.5} onCommit={(v) => update({ footTaper: or(v, 3) })} />
-          <LengthField label={<>Fit clearance {u}</>} value={p.fitClear} units={units} min={0} step={0.05} onCommit={(v) => update({ fitClear: v ?? 0.25 })} />
-        </div>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Wall between sockets {u}</>} value={p.ringW} units={units} min={1} step={0.5} onCommit={(v) => update({ ringW: or(v, 2.5) })} />
-        </div>
-        <p className="bb-hint">
-          The baseplate is a uniform grid of tapered sockets, one every "Grid reference" spacing across the whole drawer — it doesn't
-          know or care where your bins are. Each bin grows a matching tapered foot under every grid cell it substantially covers,
-          Gridfinity-style, so it can nest anywhere on the plate and you can rearrange bins without reprinting it. Foot taper = foot
-          height gives a 45° self-aligning chamfer that prints without supports.
+        <p className="bb-hint mb-2">
+          {gf ? (
+            <>
+              Gridfinity on: 42 mm grid, bins snap to whole cells (42n − 0.5 mm) and whole 7 mm height units. The plate uses the
+              standard pocket and the bins the standard foot, so they mix with any other Gridfinity parts.{' '}
+              {p.gfPlateMagnets && (
+                <>
+                  Magnet baseplate: a skeleton floor under the pockets (1 mm skin + 2.4 mm) with a 6.5 mm magnet pocket under each bin
+                  magnet position, making the plate {units.fmt(GF.plateH + gfFloorH(p))} tall. Press every plate magnet in with the same
+                  pole up and every bin magnet with the opposite pole down.{' '}
+                </>
+              )}
+              Where the drawer leaves less than a whole cell at the far walls, the plate carries a trimmed pocket and bins can run into
+              it with a trimmed foot (trimmed feet get no magnets; the plate keeps any magnet pocket that fits whole). Bins stacked on
+              bins still use Bin Bench's own collar, not the Gridfinity stacking lip.
+            </>
+          ) : (
+            'Off: the custom grid and socket below are used.'
+          )}
         </p>
+        <div style={gf ? { opacity: 0.45 } : undefined}>
+          <div className="mb-2 flex gap-2">
+            <LengthField label={<>Plate thickness {u}</>} value={p.baseThick} units={units} min={2} step={0.5} disabled={gf} onCommit={(v) => update({ baseThick: or(v, 5) })} />
+            <LengthField label={<>Foot height {u}</>} value={p.footH} units={units} min={1} step={0.5} disabled={gf} onCommit={(v) => update({ footH: or(v, 3) })} />
+          </div>
+          <div className="mb-2 flex gap-2">
+            <LengthField label={<>Foot taper {u}</>} value={p.footTaper} units={units} min={0.5} step={0.5} disabled={gf} onCommit={(v) => update({ footTaper: or(v, 3) })} />
+            <LengthField label={<>Fit clearance {u}</>} value={p.fitClear} units={units} min={0} step={0.05} disabled={gf} onCommit={(v) => update({ fitClear: v ?? 0.25 })} />
+          </div>
+          <div className="mb-2 flex gap-2">
+            <LengthField label={<>Wall between sockets {u}</>} value={p.ringW} units={units} min={1} step={0.5} disabled={gf} onCommit={(v) => update({ ringW: or(v, 2.5) })} />
+          </div>
+        </div>
+        {!gf && (
+          <p className="bb-hint">
+            The baseplate is a uniform grid of tapered sockets, one every "Grid reference" spacing across the whole drawer — it doesn't
+            know or care where your bins are. Each bin grows a matching tapered foot under every grid cell it substantially covers,
+            Gridfinity-style, so it can nest anywhere on the plate and you can rearrange bins without reprinting it. Foot taper = foot
+            height gives a 45° self-aligning chamfer that prints without supports.
+          </p>
+        )}
       </Panel>
 
       <Panel title="Paper template" tour="paper">
