@@ -62,9 +62,19 @@ function build3MFModelXML(objects: MeshObject[]) {
       `<object id="${obj.id}" type="model"><mesh><vertices>${vtx.join('')}</vertices><triangles>${tri.join('')}</triangles></mesh></object>`,
     );
     const [tx, ty, tz] = obj.transform || [0, 0, 0];
-    build.push(`<item objectid="${obj.id}" transform="1 0 0 0 1 0 0 0 1 ${tx.toFixed(3)} ${ty.toFixed(3)} ${tz.toFixed(3)}"/>`);
+    build.push(
+      `<item objectid="${obj.id}" transform="1 0 0 0 1 0 0 0 1 ${tx.toFixed(3)} ${ty.toFixed(3)} ${tz.toFixed(3)}" printable="1"/>`,
+    );
   });
-  return `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources>${resources.join('')}</resources><build>${build.join('')}</build></model>`;
+  // Bambu Studio decides whether a 3MF is one of its own by this one piece of
+  // metadata: its importer sets m_is_bbl_3mf only when the Application string starts
+  // with "BambuStudio-". Without it the file goes down the "3mf from another vendor"
+  // path, which throws the plate assignment away and drops everything on plate 1 —
+  // so the plate tagging below is only read if this line is here.
+  const head =
+    '<metadata name="Application">BambuStudio-01.10.00.00</metadata>' +
+    '<metadata name="BambuStudio:3mfVersion">1</metadata>';
+  return `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">${head}<resources>${resources.join('')}</resources><build>${build.join('')}</build></model>`;
 }
 
 export async function download3MF(objects: MeshObject[], filename: string, extras?: Record<string, string>) {
