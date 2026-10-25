@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { type Project, binName } from '@/lib/binbench/model';
 import { type Box2, buildStackedPlates, computeBaseplateTiles, floorBins, packPlates, tileTriangles } from '@/lib/binbench/geometry';
-import { download3MF, downloadAllPlates3MF, downloadPlate3MF, safeFileName } from '@/lib/binbench/exporters';
+import { download3MF, downloadAllPlates3MF, downloadAllSections3MF, downloadPlate3MF, safeFileName } from '@/lib/binbench/exporters';
 import { LengthField, Section, UnitSuffix } from './fields';
 import type { Units } from './units';
 
@@ -116,13 +116,21 @@ export function BaseplateSections({
         <LengthField className="max-w-[150px]" label={<>Support gap <UnitSuffix units={units} /></>} value={p.stackGap} units={units}
           step={0.1} min={0.4} onCommit={(v) => onStackGap(v ? v : 1.0)} />
         <button type="button" className="bb-btn bb-btn-xs bb-btn-primary mb-0.5" onClick={stacked}>Print all sections in one stack (3MF)</button>
+        <button type="button" className="bb-btn bb-btn-xs mb-0.5" disabled={!tiles.length}
+          onClick={async () => { const r = await downloadAllSections3MF(p); onStatus(r.msg, r.err); }}>
+          Export every section flat as one 3MF
+        </button>
       </div>
       <p className="bb-hint">
-        Piles every section into one stack, each one turned over from the last so the socket faces meet squarely, turned a quarter
-        where that is what makes it fit inside the one below, lined up on a shared grid and biggest at the bottom. The sections are
-        separated by an air gap, not by plastic —{' '}
-        <b>turn supports on and set them to everywhere, not just the build plate</b>, and the slicer fills each gap with support that
-        peels off to free the sections.
+        <b>In one stack:</b> every section piled up, each one turned over from the last so the socket faces meet squarely, turned a
+        quarter where that is what makes it fit inside the one below, lined up on a shared grid and biggest at the bottom. The sections
+        are separated by an air gap, not by plastic — <b>turn supports on and set them to everywhere, not just the build plate</b>, and
+        the slicer fills each gap with support that peels off to free the sections.
+      </p>
+      <p className="bb-hint">
+        <b>Flat as one 3MF:</b> the same sections in one file but lying flat, one to a plate and tagged so Bambu Studio opens them as
+        separate plates. No supports and no stack height to clear — it just takes a print job per section. Other slicers ignore the
+        tagging and show the sections side by side instead.
       </p>
     </Section>
   );

@@ -2,7 +2,7 @@
 // the browser download itself.
 import JSZip from 'jszip';
 import { type Bin, type Project, binName } from './model';
-import { type MeshObject, type Tri, binTriangles, packPlates, placedBinTris } from './geometry';
+import { type MeshObject, type Tri, binTriangles, computeBaseplateTiles, packPlates, placedBinTris, tileTriangles } from './geometry';
 
 export function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -156,6 +156,26 @@ export async function downloadAllPlates3MF(p: Project): Promise<{ msg: string; e
       (oversize ? ' — ' + oversize + ' left out for being bigger than the bed.' : '.'),
     err: oversize > 0,
   };
+}
+
+/** Every baseplate section in one 3MF, lying flat — one section per plate rather than
+ *  piled into a stack. The same file for anyone who would rather print the sections a
+ *  plate at a time than run the stack with supports. */
+export async function downloadAllSections3MF(p: Project): Promise<{ msg: string; err: boolean }> {
+  const { tiles, plate } = computeBaseplateTiles(p);
+  if (!tiles.length) return { msg: 'There are no baseplate sections to export.', err: true };
+  const spread = p.bed.x + 20; // sections side by side for slicers that ignore the tagging
+  const objects: MeshObject[] = tiles.map((tile, k) => ({
+    id: k + 1,
+    plate: k,
+    name: 'Baseplate section ' + (k + 1),
+    tris: tileTriangles(p, tile, plate),
+    transform: [k * spread, 0, 0],
+  }));
+  await download3MF(objects, safeFileName(p.projectName) + '_baseplates', {
+    'Metadata/model_settings.config': bambuPlateConfig(objects),
+  });
+  return { msg: tiles.length + ' section(s) in one file, one to a plate, lying flat — no supports needed.', err: false };
 }
 
 export function downloadPlate3MF(p: Project, plateIdx: number) {
