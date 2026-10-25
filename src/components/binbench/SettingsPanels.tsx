@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { type Project, PRINTERS, usableBounds } from '@/lib/binbench/model';
-import { GF, gfFloorH, gfOn, gfSnaps, setGridfinity, setWholeCells } from '@/lib/binbench/gridfinity';
+import { GF, gfFloorH, gfOn, gfSnaps, setGridfinity } from '@/lib/binbench/gridfinity';
 import { type PaperSize, printTemplate } from '@/lib/binbench/template';
 import { LengthField, Panel, UnitSuffix } from './fields';
 import { type Highlight, PlateCrossSection, WallsCrossSection } from './CrossSection';
 import type { LengthUnit, Units } from './units';
 
-type Update = (patch: Partial<Project>) => void;
+/** `merge` names the field being edited: consecutive changes to the same one collapse
+ *  into a single undo step, so typing a name isn't one step per keystroke. */
+type Update = (patch: Partial<Project>, merge?: string) => void;
 /** blank or zero falls back to the default, like the original fields did */
 const or = (v: number | null, fb: number) => (v ? v : fb);
 
@@ -58,7 +60,7 @@ export default function SettingsPanels(props: Props) {
         <div className="mb-2">
           <label className="bb-label" htmlFor="bbProjName">Project name</label>
           <input id="bbProjName" type="text" className="bb-input" value={p.projectName} placeholder="e.g. bathroom top drawer"
-            onChange={(e) => update({ projectName: e.target.value })} />
+            onChange={(e) => update({ projectName: e.target.value }, 'projectName')} />
         </div>
         <div className="mb-2 flex flex-wrap gap-2">
           <button type="button" className="bb-btn bb-btn-xs bb-btn-primary" onClick={props.onSave}>Save</button>
@@ -239,7 +241,6 @@ export function AdvancedPanels({
           <PlateCrossSection project={p} units={units} on={hot} />
           <div className="mb-2 flex flex-wrap gap-x-3.5 gap-y-1.5">
             <CheckRow label="Gridfinity standard" checked={gf} onChange={(on) => update(setGridfinity(p, on))} />
-            <CheckRow label="Whole cells only" checked={gfSnaps(p)} disabled={!gf} onChange={(v) => update(setWholeCells(p, v))} />
             <CheckRow label="Magnet holes in bins" checked={p.gfMagnets} disabled={!gf} onChange={(v) => update({ gfMagnets: v })} />
             <CheckRow label="Magnet baseplate" checked={p.gfPlateMagnets} disabled={!gf} onChange={(v) => update({ gfPlateMagnets: v })} />
           </div>
@@ -248,17 +249,17 @@ export function AdvancedPanels({
               <>
                 Gridfinity on: 42 mm grid, the plate uses the standard pocket and the bins the standard foot, so they mix with any
                 other Gridfinity parts.{' '}
+                <b>Whole cells only</b>, above the drawer layout, is {gfSnaps(p) ? 'on' : 'off'}:{' '}
                 {gfSnaps(p) ? (
                   <>
-                    <b>Whole cells only:</b> bins snap to whole cells (42n − 0.5 mm) and whole 7 mm height units, so every bin is a
-                    true Gridfinity size. Turn it off to size bins freely.{' '}
+                    bins snap to whole cells (42n − 0.5 mm) and whole 7 mm height units, so every bin is a true Gridfinity size.{' '}
                   </>
                 ) : (
                   <>
-                    <b>Free sizing:</b> bins can be any size and any height. They still grow the standard foot on every cell they
-                    reach, trimmed back to their own outline where their edge cuts through one, so they drop into the same plate —
-                    they just aren't whole Gridfinity sizes any more, and a bin narrower than about {units.fine(2 * GF.clear + 2.25)}{' '}
-                    across a cell gets no foot there at all.{' '}
+                    bins can be any size and any height. They still grow the standard foot on every cell they reach, trimmed back to
+                    their own outline where their edge cuts through one, so they drop into the same plate — they just aren't whole
+                    Gridfinity sizes any more, and a bin narrower than about {units.fine(2 * GF.clear + 2.25)} across a cell gets no
+                    foot there at all.{' '}
                   </>
                 )}
                 {p.gfPlateMagnets && (
