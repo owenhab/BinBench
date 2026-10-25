@@ -77,15 +77,17 @@ export function BaseplateSections({
     msgs.push(splitCount + ' socket' + (splitCount === 1 ? ' is' : 's are') + ' split across a plate seam — print the tiles, then butt them together and glue or tape the seam.');
 
   const stacked = () => {
-    const { piles, objects, notes, height, count } = buildStackedPlates(p);
+    const { objects, notes, height, width, depth, count } = buildStackedPlates(p);
     if (!objects.length) return onStatus(notes[0] || 'Nothing to stack.', true);
     const out = notes.slice();
     if (height > p.bed.z)
-      out.push('The tallest pile is ' + units.fmt(height) + ', over the ' + units.fmt(p.bed.z) +
+      out.push('The stack is ' + units.fmt(height) + ' tall, over the ' + units.fmt(p.bed.z) +
         ' your printer can reach — raise the bed height or use a coarser grid so there are fewer sections.');
+    if (width > p.bed.x + 0.01 || depth > p.bed.y + 0.01)
+      out.push('The stack is ' + units.fmt(width) + '×' + units.fmt(depth) + ', bigger than the bed.');
     void download3MF(objects, safeFileName(p.projectName) + '_baseplates_stacked');
     onStatus(
-      count + ' section(s) in ' + piles.length + ' pile' + (piles.length === 1 ? '' : 's') + ', ' + units.fmt(height) + ' tall' +
+      count + ' section(s) in one stack, ' + units.fmt(height) + ' tall' +
         (out.length ? ' — ' + out.join(' ') : ' — turn on supports set to everywhere, not just the build plate, or the sections will print in mid-air.'),
       out.length > 0,
     );
@@ -116,8 +118,9 @@ export function BaseplateSections({
         <button type="button" className="bb-btn bb-btn-xs bb-btn-primary mb-0.5" onClick={stacked}>Print all sections in one stack (3MF)</button>
       </div>
       <p className="bb-hint">
-        Piles every section into a single job, each one turned over from the last so the socket faces meet squarely, lined up on a
-        shared grid and biggest at the bottom. The sections are separated by an air gap, not by plastic —{' '}
+        Piles every section into one stack, each one turned over from the last so the socket faces meet squarely, turned a quarter
+        where that is what makes it fit inside the one below, lined up on a shared grid and biggest at the bottom. The sections are
+        separated by an air gap, not by plastic —{' '}
         <b>turn supports on and set them to everywhere, not just the build plate</b>, and the slicer fills each gap with support that
         peels off to free the sections.
       </p>

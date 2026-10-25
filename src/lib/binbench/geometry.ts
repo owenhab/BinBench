@@ -939,16 +939,16 @@ export function computeBaseplateTiles(p: Project) {
 }
 
 // ---------- stacked plate printing ----------
-// One print job with every baseplate section piled up. Alternate flips put mouth
-// against mouth and throat against throat; a shared grid keeps walls over walls; and
-// biggest-first means nothing juts out over air.
-function flipTrisAboutX(tris: Tri[], d: number, h: number): Tri[] {
-  // 180° about the X axis — mirroring two axes is a rotation, so winding survives
-  return tris.map((t) => t.map((v) => [v[0], d - v[1], h - v[2]]) as Tri);
-}
+// One print job with every baseplate section piled up in a single stack. Each section
+// is turned over from the one below so mouth meets mouth and throat meets throat, a
+// shared grid keeps walls over walls, and biggest-first means nothing juts out over
+// air.
 
-// Sections cut for stacking are cut on cell boundaries, so every section is a whole
-// number of cells and no socket is ever split across a seam.
+// Sections cut for stacking are cut on cell boundaries, which the ordinary sections
+// are not — those are cut wherever they best fit the bed. Two sections the same size
+// but starting at different points in the grid can't be both lined up and sat inside
+// one another, so the pile needs its own cut: every section a whole number of cells,
+// which also means no socket is ever split across a seam.
 function stackCuts(lo: number, hi: number, maxSpan: number, unit: number) {
   const per = Math.max(1, Math.floor(maxSpan / unit));
   const cuts = [lo];
@@ -958,6 +958,7 @@ function stackCuts(lo: number, hi: number, maxSpan: number, unit: number) {
     cuts.push(x);
   }
   cuts.push(hi);
+  // fold a final scrap back into the section before it when the bed has room
   if (cuts.length >= 3) {
     const last = cuts[cuts.length - 1] - cuts[cuts.length - 2];
     const prev = cuts[cuts.length - 2] - cuts[cuts.length - 3];
@@ -994,16 +995,61 @@ function faceRects(tile: Box2, plate: Plate, kind: 'mouth' | 'throat') {
   });
   return out;
 }
-function placeRects(rects: Box2[], tile: Box2, flip: boolean, nd: number, dx: number, dy: number) {
+
+interface Section {
+  t: Box2;
+  w: number;
+  d: number;
+  /** the section's box rounded up to whole cells, which a turn is taken about */
+  nw: number;
+  nd: number;
+  big: number;
+  small: number;
+}
+/** A section's pose in the pile: turned `rot` quarter-turns about Z (0–3) and then
+ *  optionally turned over about X. Both are rotations, so triangle winding survives.
+ *  Each is taken about the section's cell-rounded box, which keeps every grid line on
+ *  a whole multiple of the pitch in the pile — the short row at a far wall stays in
+ *  phase however the section is turned. */
+interface Pose {
+  rot: number;
+  flip: boolean;
+}
+/** One candidate placement of a section on the one below it. */
+interface Placed {
+  pose: Pose;
+  dx: number;
+  dy: number;
+  /** mm² of this section's underside left over air */
+  bad: number;
+  score: number;
+  /** the section's own box in this pose, before the offset */
+  b: Box2;
+}
+function poseXY(x: number, y: number, s: Section, pose: Pose): [number, number] {
+  const r = pose.rot || 0;
+  if (r === 1) { const t = x; x = s.nd - y; y = t; }
+  else if (r === 2) { x = s.nw - x; y = s.nd - y; }
+  else if (r === 3) { const t = x; x = y; y = s.nw - t; }
+  if (pose.flip) y = (r % 2 ? s.nw : s.nd) - y;
+  return [x, y];
+}
+function poseRects(rects: Box2[], s: Section, pose: Pose, dx: number, dy: number): Box2[] {
   return rects.map((r) => {
-    let y0 = r.y0 - tile.y0, y1 = r.y1 - tile.y0;
-    if (flip) {
-      const t = y0;
-      y0 = nd - y1;
-      y1 = nd - t;
-    }
-    return { x0: r.x0 - tile.x0 + dx, x1: r.x1 - tile.x0 + dx, y0: y0 + dy, y1: y1 + dy };
+    const a = poseXY(r.x0 - s.t.x0, r.y0 - s.t.y0, s, pose), b = poseXY(r.x1 - s.t.x0, r.y1 - s.t.y0, s, pose);
+    return { x0: Math.min(a[0], b[0]) + dx, x1: Math.max(a[0], b[0]) + dx, y0: Math.min(a[1], b[1]) + dy, y1: Math.max(a[1], b[1]) + dy };
   });
+}
+function poseTris(tris: Tri[], s: Section, pose: Pose, h: number): Tri[] {
+  return tris.map((t) =>
+    t.map((v) => {
+      const [x, y] = poseXY(v[0], v[1], s, pose);
+      return [x, y, pose.flip ? h - v[2] : v[2]];
+    }) as Tri,
+  );
+}
+function poseBox(s: Section, pose: Pose) {
+  return poseRects([{ x0: s.t.x0, y0: s.t.y0, x1: s.t.x1, y1: s.t.y1 }], s, pose, 0, 0)[0];
 }
 function rectArea(r: Box2) {
   return Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
@@ -1027,90 +1073,119 @@ export function buildStackedPlates(p: Project) {
   const plate = buildPlate(p);
   const tiles = stackTiles(p);
   if (!tiles.length)
-    return { piles: [], objects: [] as MeshObject[], notes: ['There are no baseplate sections to stack.'], height: 0, count: 0 };
+    return { objects: [] as MeshObject[], notes: ['There are no baseplate sections to stack.'], height: 0, width: 0, depth: 0, count: 0, turned: 0, overhangs: 0 };
   const thick = p.baseThick;
   const unit = pegGeometry(p).unit;
   const gapH = Math.max(0.2, p.stackGap);
+  const pad = 4, bedW = p.bed.x - pad * 2, bedD = p.bed.y - pad * 2;
+  const ru = (v: number) => Math.ceil(v / unit - 1e-6) * unit;
 
-  const sections = tiles
+  // Every section is a whole number of cells and starts on a cell line, so any offset
+  // that is a whole number of cells keeps the grids in step. Biggest first, judged by
+  // the longer side and then the shorter: with quarter turns allowed, that is the
+  // order in which each section fits inside the one before it.
+  const sections: Section[] = tiles
     .map((t) => {
       const w = t.x1 - t.x0, d = t.y1 - t.y0;
-      return { t, w, d, nd: Math.ceil(d / unit - 1e-6) * unit };
+      return { t, w, d, nw: ru(w), nd: ru(d), big: Math.max(w, d), small: Math.min(w, d) };
     })
-    .sort((a, b) => b.w * b.d - a.w * a.d);
-  type Section = (typeof sections)[number];
-  interface Pile {
-    items: { s: Section; flip: boolean; dx: number; dy: number }[];
-    topRects: Box2[];
-    x0: number;
-    x1: number;
-    y0: number;
-    y1: number;
-  }
+    .sort((a, b) => b.big - a.big || b.small - a.small || b.w * b.d - a.w * a.d);
 
-  // A section joins a pile only where its underside lands entirely on what is already there.
-  const piles: Pile[] = [];
+  // ONE pile. Each section goes on top of the last, turned over from it so the faces
+  // meet like for like, and is tried both ways round and at every in-step offset;
+  // the placement that leaves nothing hanging over air wins. Only when no placement
+  // is fully carried does it take the one with the least overhang — the slicer's
+  // supports then hold that edge up from the bed.
+  const items: { s: Section; pose: Pose; dx: number; dy: number }[] = [];
   const notes: string[] = [];
-  sections.forEach((s) => {
-    for (const pile of piles) {
-      const flip = pile.items.length % 2 === 1;
-      const raw = faceRects(s.t, plate, flip ? 'mouth' : 'throat');
-      const my0 = flip ? s.nd - s.d : 0;
-      let best: { dx: number; dy: number; bad: number } | null = null;
-      for (let dx = pile.x0; dx + s.w <= pile.x1 + 0.01; dx += unit) {
-        for (let dy = pile.y0 - my0; dy + my0 + s.d <= pile.y1 + 0.01; dy += unit) {
-          const cand = placeRects(raw, s.t, flip, s.nd, dx, dy);
-          const bad = unsupportedArea(cand, pile.topRects);
-          if (!best || bad < best.bad) best = { dx, dy, bad };
-          if (bad < 0.01) break;
-        }
-        if (best && best.bad < 0.01) break;
-      }
-      if (best && best.bad < 0.01) {
-        pile.items.push({ s, flip, dx: best.dx, dy: best.dy });
-        pile.topRects = placeRects(faceRects(s.t, plate, flip ? 'throat' : 'mouth'), s.t, flip, s.nd, best.dx, best.dy);
-        pile.x0 = best.dx;
-        pile.x1 = best.dx + s.w;
-        pile.y0 = best.dy + my0;
-        pile.y1 = best.dy + my0 + s.d;
-        return;
-      }
+  let topRects: Box2[] = [], top: Box2 | null = null, overhangs = 0, worstOver = 0;
+  sections.forEach((s, k) => {
+    const flip = k % 2 === 1;
+    // all four quarter turns: a short row or column at a wall has to land on the same
+    // side as the one below it, and only the right turn puts it there
+    let poses: Pose[] = [0, 2, 1, 3]
+      .map((rot) => ({ rot, flip }))
+      .filter((pose) => {
+        const b = poseBox(s, pose);
+        return b.x1 - b.x0 <= bedW + 0.01 && b.y1 - b.y0 <= bedD + 0.01;
+      });
+    if (!poses.length) poses = [{ rot: 0, flip }];
+    if (!top) {
+      const pose = poses[0];
+      items.push({ s, pose, dx: 0, dy: 0 });
+      topRects = poseRects(faceRects(s.t, plate, flip ? 'throat' : 'mouth'), s, pose, 0, 0);
+      top = poseBox(s, pose);
+      return;
     }
-    piles.push({
-      items: [{ s, flip: false, dx: 0, dy: 0 }],
-      topRects: placeRects(faceRects(s.t, plate, 'mouth'), s.t, false, s.nd, 0, 0),
-      x0: 0, x1: s.w, y0: 0, y1: s.d,
+    const below = top;
+    const found: { best: Placed | null } = { best: null };
+    poses.forEach((pose) => {
+      const b = poseBox(s, pose);
+      const raw = faceRects(s.t, plate, flip ? 'mouth' : 'throat');
+      // every in-step offset that keeps the section over the footprint below, plus a
+      // margin of one cell each way for the overhang fallback
+      const lo = (v: number) => Math.floor(v / unit) * unit;
+      for (let dx = lo(below.x0 - b.x0) - unit; dx + b.x0 <= below.x1 + unit + 0.01; dx += unit) {
+        for (let dy = lo(below.y0 - b.y0) - unit; dy + b.y0 <= below.y1 + unit + 0.01; dy += unit) {
+          const cand = poseRects(raw, s, pose, dx, dy);
+          const bad = unsupportedArea(cand, topRects);
+          // ties go to the unturned pose, then to staying centred on the one below
+          const off =
+            Math.abs(dx + (b.x0 + b.x1) / 2 - (below.x0 + below.x1) / 2) + Math.abs(dy + (b.y0 + b.y1) / 2 - (below.y0 + below.y1) / 2);
+          const score = bad * 1e6 + (pose.rot % 2 ? 2e3 : pose.rot ? 1e3 : 0) + off;
+          if (!found.best || score < found.best.score) found.best = { pose, dx, dy, bad, score, b };
+        }
+      }
     });
+    const pick = found.best as Placed;
+    if (pick.bad >= 0.01) {
+      overhangs++;
+      worstOver = Math.max(worstOver, pick.bad);
+    }
+    items.push({ s, pose: pick.pose, dx: pick.dx, dy: pick.dy });
+    topRects = poseRects(faceRects(s.t, plate, flip ? 'throat' : 'mouth'), s, pick.pose, pick.dx, pick.dy);
+    top = { x0: pick.b.x0 + pick.dx, x1: pick.b.x1 + pick.dx, y0: pick.b.y0 + pick.dy, y1: pick.b.y1 + pick.dy };
   });
 
-  // Lay the piles out side by side, each pile ONE object (slicers drop free-standing
-  // objects to the bed). Sections are separated by plain air for support to fill.
-  const objects: MeshObject[] = [];
-  let id = 0, originX = 0, tallest = 0;
-  piles.forEach((pile) => {
-    let z = 0, pw = 0;
-    const merged: Tri[] = [];
-    pile.items.forEach((it, k) => {
-      const { s, flip, dx, dy } = it;
-      if (k > 0) z += gapH;
-      const tris = tileTriangles(p, s.t, plate);
-      const oriented = flip ? flipTrisAboutX(tris, s.nd, thick) : tris;
-      const zz = z;
-      oriented.forEach((t) => merged.push(t.map((v) => [v[0] + dx, v[1] + dy, v[2] + zz]) as Tri));
-      z += thick;
-      pw = Math.max(pw, dx + s.w);
-    });
-    if (merged.length) objects.push({ id: ++id, tris: merged, transform: [originX, 0, 0] });
-    tallest = Math.max(tallest, z);
-    originX += pw + 6;
-  });
-  if (piles.length > 1)
-    notes.push(
-      'The sections could not all carry one another, so they are laid out as ' +
-        piles.length +
-        ' separate piles side by side — print them together if they fit your bed, or move them into separate jobs.',
+  // Sections are separated by plain air, not by a layer of plastic. A layer would be
+  // the same material at full contact and simply weld the sections into one lump.
+  // The gap leaves the slicer to fill it with its own support, whose interface layers
+  // are built to release. Lining the grids up still earns its keep: the gap sits
+  // directly over the wall below, so the support stands on solid material a gap's
+  // height down instead of reaching up through open sockets.
+  //
+  // The pile is merged into a single object because slicers drop free-standing
+  // objects onto the bed — as separate objects the sections would all land at z=0.
+  let z = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const merged: Tri[] = [];
+  items.forEach((it, k) => {
+    if (k > 0) z += gapH;
+    const zz = z;
+    poseTris(tileTriangles(p, it.s.t, plate), it.s, it.pose, thick).forEach((t) =>
+      merged.push(
+        t.map((v) => {
+          const q: Vec3 = [v[0] + it.dx, v[1] + it.dy, v[2] + zz];
+          if (q[0] < minX) minX = q[0];
+          if (q[0] > maxX) maxX = q[0];
+          if (q[1] < minY) minY = q[1];
+          if (q[1] > maxY) maxY = q[1];
+          return q;
+        }) as Tri,
+      ),
     );
-  return { piles, objects, notes, height: tallest, count: sections.length };
+    z += thick;
+  });
+  // bring the pile's footprint to the origin
+  merged.forEach((t) => t.forEach((v) => { v[0] -= minX; v[1] -= minY; }));
+  const objects: MeshObject[] = merged.length ? [{ id: 1, tris: merged, transform: [0, 0, 0] }] : [];
+  const turned = items.filter((it) => it.pose.rot % 2).length;
+  if (turned) notes.push(turned + ' section(s) are turned a quarter so they fit inside the one below.');
+  if (overhangs)
+    notes.push(
+      overhangs + ' section(s) could not sit wholly on the one below (worst overhang ' + Math.round(worstOver) +
+        ' mm²); with supports set to everywhere the slicer holds those edges up from the bed.',
+    );
+  return { objects, notes, height: z, width: maxX - minX, depth: maxY - minY, count: sections.length, turned, overhangs };
 }
 
 // ---------- plate packing ----------
