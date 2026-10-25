@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { type Project, PRINTERS, usableBounds } from '@/lib/binbench/model';
+import { GF, gfFloorH, gfOn, setGridfinity } from '@/lib/binbench/gridfinity';
 import { type PaperSize, printTemplate } from '@/lib/binbench/template';
 import { LengthField, Panel, UnitSuffix } from './fields';
+import { type Highlight, PlateCrossSection, WallsCrossSection } from './CrossSection';
 import type { LengthUnit, Units } from './units';
 
 type Update = (patch: Partial<Project>) => void;
@@ -11,7 +13,6 @@ const or = (v: number | null, fb: number) => (v ? v : fb);
 interface Props {
   project: Project;
   units: Units;
-  onUnitChange: (u: LengthUnit) => void;
   update: Update;
   projBadge: string;
   status: { msg: string; err: boolean };
@@ -24,6 +25,16 @@ interface Props {
   onLoadText: (text: string) => boolean;
 }
 
+function CheckRow({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className={'flex cursor-pointer items-center gap-1.5 text-xs ' + (disabled ? 'opacity-45' : '')}>
+      <input type="checkbox" className="checkbox checkbox-xs checkbox-primary" checked={checked} disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
 export default function SettingsPanels(props: Props) {
   const { project: p, units, update } = props;
   const u = <UnitSuffix units={units} />;
@@ -31,12 +42,6 @@ export default function SettingsPanels(props: Props) {
   const [jsonText, setJsonText] = useState('');
   const [paper, setPaper] = useState<PaperSize>('letter');
   const [paperBins, setPaperBins] = useState(true);
-
-  const bnd = usableBounds(p);
-  const usedArea = p.bins.reduce((s, b) => s + b.w * b.d, 0);
-  const blockedArea = p.blocked.reduce((s, b) => s + b.w * b.d, 0);
-  const usableArea = Math.max(1, (bnd.maxX - bnd.minX) * (bnd.maxY - bnd.minY) - blockedArea);
-  const coverage = Math.min(100, (usedArea / usableArea) * 100);
 
   const setBed = (axis: 'x' | 'y' | 'z', v: number | null) => {
     const bed = { ...p.bed, [axis]: or(v, 256) };
@@ -49,18 +54,6 @@ export default function SettingsPanels(props: Props) {
 
   return (
     <>
-      <Panel title="Units" defaultOpen tour="units">
-        <label className="bb-label" htmlFor="bbUnits">Measurement units</label>
-        <select id="bbUnits" className="bb-input" value={units.unit} onChange={(e) => props.onUnitChange(e.target.value as LengthUnit)}>
-          <option value="mm">Metric (mm)</option>
-          <option value="in">Standard (in)</option>
-        </select>
-        <p className="bb-hint">
-          Applies to every size field. Values are always stored internally in mm — the printed template and exported files stay true to
-          scale either way.
-        </p>
-      </Panel>
-
       <Panel title="Project" defaultOpen tour="project" badge={props.projBadge}>
         <div className="mb-2">
           <label className="bb-label" htmlFor="bbProjName">Project name</label>
@@ -134,56 +127,6 @@ export default function SettingsPanels(props: Props) {
         <p className="bb-hint">Measure the inside of the drawer, not the drawer face.</p>
       </Panel>
 
-      <Panel title="Layout & walls" tour="layout">
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Grid reference {u}</>} value={p.unit} units={units} min={2} step={0.5} onCommit={(v) => update({ unit: or(v, 42) })} />
-          <LengthField label={<>Snap {u}</>} value={p.snap} units={units} min={0.1} step={0.5} onCommit={(v) => update({ snap: or(v, 1) })} />
-        </div>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Wall clearance {u}</>} value={p.clearance} units={units} min={0} step={0.5} onCommit={(v) => update({ clearance: or(v, 0) })} />
-          <LengthField label={<>Print gap {u}</>} value={p.gap} units={units} min={0} step={0.5} onCommit={(v) => update({ gap: or(v, 0) })} />
-        </div>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Bin wall {u}</>} value={p.wall} units={units} min={0.4} step={0.2} onCommit={(v) => update({ wall: or(v, 1) })} />
-          <LengthField label={<>Bin floor {u}</>} value={p.floor} units={units} min={0.4} step={0.2} onCommit={(v) => update({ floor: or(v, 2) })} />
-        </div>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Divider thickness {u}</>} value={p.dividerThickness} units={units} min={0.4} step={0.2}
-            onCommit={(v) => update({ dividerThickness: or(v, 1.2) })} />
-          <LengthField label={<>Min bin gap {u}</>} value={p.minGap} units={units} min={0} step={0.1}
-            onCommit={(v) => update({ minGap: Math.max(0, v ?? 0.5) })} />
-        </div>
-        <p className="bb-hint">
-          Usable area {units.fmt(bnd.maxX - bnd.minX)}×{units.fmt(bnd.maxY - bnd.minY)}. Coverage: {coverage.toFixed(0)}%.
-        </p>
-      </Panel>
-
-      <Panel title="Baseplate" tour="baseplate" headerExtra={
-        <label className="bb-mono-dim ml-auto flex cursor-pointer items-center gap-1.5 text-[10.5px]" onClick={(e) => e.stopPropagation()}>
-          <input type="checkbox" className="checkbox checkbox-xs checkbox-primary" checked={p.baseplateEnabled}
-            onChange={(e) => update({ baseplateEnabled: e.target.checked })} />
-          enable
-        </label>
-      }>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Plate thickness {u}</>} value={p.baseThick} units={units} min={2} step={0.5} onCommit={(v) => update({ baseThick: or(v, 5) })} />
-          <LengthField label={<>Foot height {u}</>} value={p.footH} units={units} min={1} step={0.5} onCommit={(v) => update({ footH: or(v, 3) })} />
-        </div>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Foot taper {u}</>} value={p.footTaper} units={units} min={0.5} step={0.5} onCommit={(v) => update({ footTaper: or(v, 3) })} />
-          <LengthField label={<>Fit clearance {u}</>} value={p.fitClear} units={units} min={0} step={0.05} onCommit={(v) => update({ fitClear: v ?? 0.25 })} />
-        </div>
-        <div className="mb-2 flex gap-2">
-          <LengthField label={<>Wall between sockets {u}</>} value={p.ringW} units={units} min={1} step={0.5} onCommit={(v) => update({ ringW: or(v, 2.5) })} />
-        </div>
-        <p className="bb-hint">
-          The baseplate is a uniform grid of tapered sockets, one every "Grid reference" spacing across the whole drawer — it doesn't
-          know or care where your bins are. Each bin grows a matching tapered foot under every grid cell it substantially covers,
-          Gridfinity-style, so it can nest anywhere on the plate and you can rearrange bins without reprinting it. Foot taper = foot
-          height gives a 45° self-aligning chamfer that prints without supports.
-        </p>
-      </Panel>
-
       <Panel title="Paper template" tour="paper">
         <div className="mb-2 flex gap-2">
           <div className="min-w-0 flex-1">
@@ -208,5 +151,144 @@ export default function SettingsPanels(props: Props) {
         </p>
       </Panel>
     </>
+  );
+}
+
+// ---------- advanced ----------
+// The settings most drawers never need touched: the display unit, the millimetres a
+// bin is built from, and the socket the baseplate carries. Closed until asked for.
+export function AdvancedPanels({
+  project: p, units, update, onUnitChange,
+}: {
+  project: Project;
+  units: Units;
+  update: Update;
+  onUnitChange: (u: LengthUnit) => void;
+}) {
+  const u = <UnitSuffix units={units} />;
+  const [hot, setHot] = useState<Highlight>(null);
+  const lit = (key: string) => (on: boolean) => setHot(on ? key : null);
+
+  const gf = gfOn(p);
+  const bnd = usableBounds(p);
+  const usedArea = p.bins.reduce((s, b) => s + b.w * b.d, 0);
+  const blockedArea = p.blocked.reduce((s, b) => s + b.w * b.d, 0);
+  const usableArea = Math.max(1, (bnd.maxX - bnd.minX) * (bnd.maxY - bnd.minY) - blockedArea);
+  const coverage = Math.min(100, (usedArea / usableArea) * 100);
+
+  return (
+    <details className="group mb-2.5" data-tour="advanced">
+      <summary
+        className="bb-h flex cursor-pointer list-none items-center gap-2 rounded-field border px-3 py-2.5 select-none hover:text-base-content [&::-webkit-details-marker]:hidden"
+        style={{ borderColor: 'var(--bb-line)', background: 'var(--bb-panel-2)' }}
+      >
+        <span className="text-[10px] text-primary transition-transform group-open:rotate-90" aria-hidden>▶</span>
+        Advanced settings
+        <span className="bb-mono-dim ml-auto text-[10.5px]">units · layout · baseplate</span>
+      </summary>
+
+      <div className="pt-2.5">
+        <Panel title="Units" defaultOpen tour="units">
+          <label className="bb-label" htmlFor="bbUnits">Measurement units</label>
+          <select id="bbUnits" className="bb-input" value={units.unit} onChange={(e) => onUnitChange(e.target.value as LengthUnit)}>
+            <option value="mm">Metric (mm)</option>
+            <option value="in">Standard (in)</option>
+          </select>
+          <p className="bb-hint">
+            Applies to every size field. Values are always stored internally in mm — the printed template and exported files stay true to
+            scale either way.
+          </p>
+        </Panel>
+
+        <Panel title="Layout & walls" defaultOpen tour="layout">
+          <WallsCrossSection project={p} units={units} on={hot} />
+          <div className="mb-2 flex gap-2">
+            <LengthField label={<>Grid reference {u}</>} value={p.unit} units={units} min={2} step={0.5} disabled={gf}
+              title={gf ? 'Gridfinity mode sets the grid to 42 mm' : undefined} onCommit={(v) => update({ unit: or(v, 42) })} />
+            <LengthField label={<>Snap {u}</>} value={p.snap} units={units} min={0.1} step={0.5} onCommit={(v) => update({ snap: or(v, 1) })} />
+          </div>
+          <div className="mb-2 flex gap-2">
+            <LengthField label={<>Wall clearance {u}</>} value={p.clearance} units={units} min={0} step={0.5} onActive={lit('clearance')}
+              onCommit={(v) => update({ clearance: or(v, 0) })} />
+            <LengthField label={<>Print gap {u}</>} value={p.gap} units={units} min={0} step={0.5} onCommit={(v) => update({ gap: or(v, 0) })} />
+          </div>
+          <div className="mb-2 flex gap-2">
+            <LengthField label={<>Bin wall {u}</>} value={p.wall} units={units} min={0.4} step={0.2} onActive={lit('wall')}
+              onCommit={(v) => update({ wall: or(v, 1) })} />
+            <LengthField label={<>Bin floor {u}</>} value={p.floor} units={units} min={0.4} step={0.2} onActive={lit('floor')}
+              onCommit={(v) => update({ floor: or(v, 2) })} />
+          </div>
+          <div className="mb-2 flex gap-2">
+            <LengthField label={<>Divider thickness {u}</>} value={p.dividerThickness} units={units} min={0.4} step={0.2}
+              onActive={lit('dividerThickness')} onCommit={(v) => update({ dividerThickness: or(v, 1.2) })} />
+            <LengthField label={<>Min bin gap {u}</>} value={p.minGap} units={units} min={0} step={0.1} onActive={lit('minGap')}
+              onCommit={(v) => update({ minGap: Math.max(0, v ?? 0.5) })} />
+          </div>
+          <p className="bb-hint">
+            Usable area {units.fmt(bnd.maxX - bnd.minX)}×{units.fmt(bnd.maxY - bnd.minY)}. Coverage: {coverage.toFixed(0)}%.
+          </p>
+        </Panel>
+
+        <Panel title="Baseplate" defaultOpen tour="baseplate" headerExtra={
+          <label className="bb-mono-dim ml-auto flex cursor-pointer items-center gap-1.5 text-[10.5px]" onClick={(e) => e.stopPropagation()}>
+            <input type="checkbox" className="checkbox checkbox-xs checkbox-primary" checked={p.baseplateEnabled}
+              onChange={(e) => update({ baseplateEnabled: e.target.checked })} />
+            enable
+          </label>
+        }>
+          <PlateCrossSection project={p} units={units} on={hot} />
+          <div className="mb-2 flex flex-wrap gap-x-3.5 gap-y-1.5">
+            <CheckRow label="Gridfinity standard" checked={gf} onChange={(on) => update(setGridfinity(p, on))} />
+            <CheckRow label="Magnet holes in bins" checked={p.gfMagnets} disabled={!gf} onChange={(v) => update({ gfMagnets: v })} />
+            <CheckRow label="Magnet baseplate" checked={p.gfPlateMagnets} disabled={!gf} onChange={(v) => update({ gfPlateMagnets: v })} />
+          </div>
+          <p className="bb-hint mb-2">
+            {gf ? (
+              <>
+                Gridfinity on: 42 mm grid, bins snap to whole cells (42n − 0.5 mm) and whole 7 mm height units. The plate uses the
+                standard pocket and the bins the standard foot, so they mix with any other Gridfinity parts.{' '}
+                {p.gfPlateMagnets && (
+                  <>
+                    Magnet baseplate: a skeleton floor under the pockets (1 mm skin + 2.4 mm) with a 6.5 mm magnet pocket under each bin
+                    magnet position, making the plate {units.fmt(GF.plateH + gfFloorH(p))} tall. Press every plate magnet in with the same
+                    pole up and every bin magnet with the opposite pole down.{' '}
+                  </>
+                )}
+                Where the drawer leaves less than a whole cell at the far walls, the plate carries a trimmed pocket and bins can run into
+                it with a trimmed foot (trimmed feet get no magnets; the plate keeps any magnet pocket that fits whole). Bins stacked on
+                bins still use Bin Bench's own collar, not the Gridfinity stacking lip.
+              </>
+            ) : (
+              'Off: the custom grid and socket below are used.'
+            )}
+          </p>
+          <div style={gf ? { opacity: 0.45 } : undefined}>
+            <div className="mb-2 flex gap-2">
+              <LengthField label={<>Plate thickness {u}</>} value={p.baseThick} units={units} min={2} step={0.5} disabled={gf}
+                onActive={lit('baseThick')} onCommit={(v) => update({ baseThick: or(v, 5) })} />
+              <LengthField label={<>Foot height {u}</>} value={p.footH} units={units} min={1} step={0.5} disabled={gf}
+                onActive={lit('footH')} onCommit={(v) => update({ footH: or(v, 3) })} />
+            </div>
+            <div className="mb-2 flex gap-2">
+              <LengthField label={<>Foot taper {u}</>} value={p.footTaper} units={units} min={0.5} step={0.5} disabled={gf}
+                onActive={lit('footTaper')} onCommit={(v) => update({ footTaper: or(v, 3) })} />
+              <LengthField label={<>Fit clearance {u}</>} value={p.fitClear} units={units} min={0} step={0.05} disabled={gf}
+                onActive={lit('fitClear')} onCommit={(v) => update({ fitClear: v ?? 0.25 })} />
+            </div>
+            <div className="mb-2 flex gap-2">
+              <LengthField label={<>Wall between sockets {u}</>} value={p.ringW} units={units} min={1} step={0.5} disabled={gf}
+                onActive={lit('ringW')} onCommit={(v) => update({ ringW: or(v, 2.5) })} />
+            </div>
+          </div>
+          {!gf && (
+            <p className="bb-hint">
+              The baseplate is a uniform grid of tapered sockets, one every "Grid reference" spacing across the whole drawer — it doesn't
+              know or care where your bins are. Each bin grows a matching tapered foot under every grid cell it substantially covers,
+              Gridfinity-style, so it can nest anywhere on the plate and you can rearrange bins without reprinting it.
+            </p>
+          )}
+        </Panel>
+      </div>
+    </details>
   );
 }

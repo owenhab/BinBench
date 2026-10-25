@@ -21,14 +21,15 @@ import {
   usableBounds,
   binLevel,
 } from '@/lib/binbench/model';
+import { gfOn, gfSnapEdges, gfSnapHeight, gridfinityValues } from '@/lib/binbench/gridfinity';
 import { downloadBin3MF, downloadBinSTL, triggerDownload } from '@/lib/binbench/exporters';
 import { loadProjectText, projectFileName, serializeProject } from '@/lib/binbench/project-io';
-import { type Draft, type Editing, clampDividers, cloneDraft, draftLevel } from './draft';
+import { type Draft, type Editing, clampDividers, cloneDraft, draftLevel, setDraftSize } from './draft';
 import { type LengthUnit, makeUnits, safeLocalGet, safeLocalSet } from './units';
 import DrawerCanvas from './DrawerCanvas';
 import BinEditor from './BinEditor';
 import Preview3D from './Preview3D';
-import SettingsPanels from './SettingsPanels';
+import SettingsPanels, { AdvancedPanels } from './SettingsPanels';
 import { BinList, ObstructionList, ShelfList } from './ListPanels';
 import { BaseplateSections, PlatePacking } from './PlatePanels';
 import Tour from './Tour';
@@ -42,13 +43,21 @@ const PICKER_TYPES = [{ description: 'Bin Bench project', accept: { 'application
 
 type Clip = Pick<Bin, 'w' | 'd' | 'heightMM' | 'label' | 'dividersX' | 'dividersY'>;
 
-/** the pocket is cut into the plate, so the plate must be thicker than the foot */
+// Gridfinity mode owns the grid and the socket profile outright, so its values are
+// re-stamped after every change — the magnet baseplate, for one, makes the plate
+// taller. Off, the only rule is that the pocket is cut into the plate, so the plate
+// must be thicker than the foot.
 function normalize(p: Project): Project {
+  if (gfOn(p)) {
+    const v = gridfinityValues(p);
+    const same = p.unit === v.unit && p.baseThick === v.baseThick && p.footH === v.footH && p.fitClear === v.fitClear;
+    return same ? p : { ...p, ...v };
+  }
   return p.baseThick < p.footH + 1 ? { ...p, baseThick: p.footH + 1 } : p;
 }
 
 export default function BinBenchApp() {
-  const [project, setProject] = useState<Project>(defaultProject);
+  const [project, setProject] = useState<Project>(() => normalize(defaultProject()));
   const [lengthUnit, setLengthUnit] = useState<LengthUnit>(() => (safeLocalGet('binBenchUnit') === 'in' ? 'in' : 'mm'));
   const units = useMemo(() => makeUnits(lengthUnit), [lengthUnit]);
   const [dirty, setDirty] = useState(false);
@@ -103,10 +112,18 @@ export default function BinBenchApp() {
   const commitEditor = () => {
     if (!draft || !editing) return;
     const d = cloneDraft(draft);
+    if (gfOn(p)) {
+      // whole cells and whole height units, whatever was typed
+      const r = gfSnapEdges(p, d.x, d.x + d.w, d.y, d.y + d.d, false);
+      setDraftSize(d, r.w, r.d);
+      d.x = r.x;
+      d.y = r.y;
+      if (draftLevel(p, editing, activeLevel) === 1) d.heightMM = gfSnapHeight(p, d.heightMM);
+    }
     clampDividers(d, p.wall);
     const bnd = usableBounds(p);
     let w = Math.max(1, d.w), dd = Math.max(1, d.d);
-    const h = Math.max(1, Math.round(d.heightMM));
+    const h = gfOn(p) ? Math.max(1, d.heightMM) : Math.max(1, Math.round(d.heightMM));
     // clamp the footprint into the usable drawer so it can never "extend outside"
     const x = Math.min(Math.max(d.x, bnd.minX), bnd.maxX - 1);
     const y = Math.min(Math.max(d.y, bnd.minY), bnd.maxY - 1);
@@ -358,7 +375,6 @@ export default function BinBenchApp() {
             project={p} units={units} update={update} projBadge={projBadge} status={status} setStatus={setStatus}
             canWriteFiles={canWriteFiles} onSave={() => void save()} onSaveAs={() => void saveAs()} onOpen={() => void open()}
             onCopyJson={copyJson} onLoadText={(t) => loadText(t, 'pasted JSON')}
-            onUnitChange={(u) => { setLengthUnit(u); safeLocalSet('binBenchUnit', u); }}
           />
           <input ref={openInput} type="file" accept="application/json,.json" className="hidden" onChange={(e) => {
             const file = e.target.files?.[0];
@@ -374,6 +390,8 @@ export default function BinBenchApp() {
             onDelete={(id) => commitProject({ ...p, blocked: p.blocked.filter((b) => b.id !== id) })} />
           <ShelfList project={p} units={units} onRestore={restoreShelved}
             onDelete={(id) => commitProject({ ...p, shelvedBins: p.shelvedBins.filter((s) => s.shelfId !== id) })} />
+          <AdvancedPanels project={p} units={units} update={update}
+            onUnitChange={(u) => { setLengthUnit(u); safeLocalSet('binBenchUnit', u); }} />
         </aside>
 
         <main className="min-w-0">
@@ -441,7 +459,8 @@ export default function BinBenchApp() {
       </div>
 
       {draft && editing && (
-        <BinEditor project={p} units={units} draft={draft} editing={editing} error={editorError} setError={setEditorError}
+        <BinEditor project={p} units={units} draft={draft} editing={editing} level={draftLevel(p, editing, activeLevel)}
+          error={editorError} setError={setEditorError}
           onChange={setDraft} onCommit={commitEditor} onCancel={closeEditor} layout={layout}
           onRemove={() => { const b = editing.id != null ? binById(p, editing.id) : null; if (b) removeBin(b); closeEditor(); }} />
       )}

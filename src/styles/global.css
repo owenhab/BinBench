@@ -39,30 +39,31 @@
   --noise: 0;
 }
 
-/* The tool itself: a dark workbench with a cream "paper" drawing surface. */
+/* The tool itself: a light kitchen — oatmeal and warm plaster, sage cabinetry, clay
+   and brass for the accents, walnut for the ink. */
 @plugin "daisyui/theme" {
   name: "workbench";
-  color-scheme: dark;
-  --color-base-100: #212524;
-  --color-base-200: #1c201f;
-  --color-base-300: #181b1a;
-  --color-base-content: #dfe4e1;
-  --color-primary: #7fb069;
-  --color-primary-content: #101a0c;
-  --color-secondary: #c07a55;
-  --color-secondary-content: #1a0f08;
-  --color-accent: #c9a13b;
-  --color-accent-content: #1a1404;
-  --color-neutral: #2a2f2d;
-  --color-neutral-content: #dfe4e1;
-  --color-info: #5f9fa8;
-  --color-info-content: #0b1517;
-  --color-success: #52b3a0;
-  --color-success-content: #081612;
-  --color-warning: #c9a13b;
-  --color-warning-content: #1a1404;
-  --color-error: #cf5b4e;
-  --color-error-content: #1a0907;
+  color-scheme: light;
+  --color-base-100: #faf6ee;
+  --color-base-200: #f1ebdf;
+  --color-base-300: #e6ddcb;
+  --color-base-content: #332f27;
+  --color-primary: #5f7050;
+  --color-primary-content: #f8f5ec;
+  --color-secondary: #b06f4a;
+  --color-secondary-content: #fff7f1;
+  --color-accent: #b8913c;
+  --color-accent-content: #231a05;
+  --color-neutral: #4a443a;
+  --color-neutral-content: #f4efe4;
+  --color-info: #55798a;
+  --color-info-content: #f3fafd;
+  --color-success: #4f8565;
+  --color-success-content: #f0faf4;
+  --color-warning: #b0833a;
+  --color-warning-content: #231a05;
+  --color-error: #a8503f;
+  --color-error-content: #fff4f1;
   --radius-selector: 0.25rem;
   --radius-field: 0.25rem;
   --radius-box: 0.375rem;
@@ -78,19 +79,26 @@
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
-/* Drawing-surface tokens the tool's SVGs use directly. */
+/* Drawing-surface tokens the tool's SVGs use directly. `ink` is the dark mark drawn
+   ON the paper; `field` is the surface a box or canvas sits on — they were one token
+   while the tool was dark, and pull opposite ways now that it isn't. */
 [data-theme="workbench"] {
-  --bb-ink: #181b1a;
-  --bb-panel-2: #2a2f2d;
-  --bb-line: #39403d;
-  --bb-paper: #e9e4d6;
-  --bb-paper-line: #c6c3b0;
-  --bb-measure: #7fb069;
-  --bb-rule: #4a7c3f;
-  --bb-ok: #52b3a0;
-  --bb-warn: #cf5b4e;
-  --bb-dim: #8d9691;
-  --bb-plate-bg: #141817;
+  --bb-ink: #33302a;
+  --bb-field: #fffdf8;
+  --bb-panel-2: #f1ebdf;
+  --bb-line: #d8cdb8;
+  --bb-paper: #fbf7ec;
+  --bb-paper-line: #ddd3bd;
+  --bb-measure: #5f7050;
+  --bb-rule: #8a7a5c;
+  --bb-ok: #4f8565;
+  --bb-warn: #a8503f;
+  --bb-dim: #7d7466;
+  --bb-plate-bg: #f1ebdf;
+  /* cross-section drawings: plate material, the parts that drop into it, and the lines */
+  --bb-section-body: #cdbf9f;
+  --bb-section-ghost: #e9e1cf;
+  --bb-section-edge: #8a7a5c;
 }
 
 html {
@@ -117,7 +125,7 @@ html {
   }
   .bb-input {
     @apply w-full rounded-field border px-2 py-1.5 font-mono text-[13px] text-base-content outline-none;
-    background: var(--bb-ink);
+    background: var(--bb-field);
     border-color: var(--bb-line);
   }
   .bb-input:focus {

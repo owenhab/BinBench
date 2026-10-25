@@ -1,6 +1,7 @@
 // Solid geometry for Bin Bench. Solids are convex polyhedra {verts, faces} with faces
 // wound CCW-outward. Keeping them convex means we can clip them against a build-plate
 // seam exactly, which is what lets a socket be split across two printed tiles.
+import { ShapeUtils, Vector2 } from 'three';
 import {
   type Bin,
   type Project,
@@ -10,6 +11,7 @@ import {
   lipGeometry,
   usableBounds,
 } from './model';
+import { GF, GF_ARC, gfFloorH, gfOn } from './gridfinity';
 
 export type Vec3 = [number, number, number];
 export type Tri = [Vec3, Vec3, Vec3];
@@ -23,7 +25,8 @@ export interface Box2 {
   x1: number;
   y1: number;
 }
-type Quad = [number, number][];
+type Pt2 = [number, number];
+type Quad = Pt2[];
 
 function triArea2(a: Vec3, b: Vec3, c: Vec3) {
   const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
@@ -208,6 +211,232 @@ function freeSegments(lo: number, hi: number, blocks: Interval[]) {
   return segs.filter((sg) => sg.hi - sg.lo > 0.05);
 }
 
+// ---------- Gridfinity solids ----------
+// Convex loft between two n-point rings (CCW from above). Edges that collapse to
+// nothing — the Gridfinity pocket wall runs out to a knife edge at the top — are
+// merged away so every face stays a proper polygon for the clipper.
+export function prismPolyN(bq: Pt2[], tq: Pt2[], z0: number, z1: number): Poly {
+  const n = bq.length;
+  const raw: Vec3[] = bq.map((p) => [p[0], p[1], z0] as Vec3).concat(tq.map((p) => [p[0], p[1], z1] as Vec3));
+  const verts: Vec3[] = [];
+  const index = new Map<string, number>();
+  const map = raw.map((p) => {
+    const k = p[0].toFixed(5) + ',' + p[1].toFixed(5) + ',' + p[2].toFixed(5);
+    if (!index.has(k)) {
+      index.set(k, verts.length);
+      verts.push(p);
+    }
+    return index.get(k) as number;
+  });
+  const faces: number[][] = [];
+  const add = (f: number[]) => {
+    const g = f.map((i) => map[i]).filter((v, i, a) => v !== a[(i + 1) % a.length]);
+    if (new Set(g).size >= 3) faces.push(g);
+  };
+  const ids = [...Array(n).keys()];
+  add(ids.slice().reverse());
+  add(ids.map((i) => n + i));
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    add([i, j, n + j, n + i]);
+  }
+  return { verts, faces };
+}
+const ringArea = (r: Pt2[]) =>
+  r.reduce((s, p, i) => {
+    const q = r[(i + 1) % r.length];
+    return s + p[0] * q[1] - q[0] * p[1];
+  }, 0) / 2;
+
+// One Gridfinity pocket's walls, as convex pieces: per height band, four straight
+// side slabs plus each corner cut into wedges along rays from its arc centre. The arc
+// centre stays put while the radius changes, so every wedge face is planar.
+export function gfPocketSolids(O: Box2, out: Poly[], zOff = 0) {
+  const R = GF.rc;
+  const corners: { c: Pt2; a0: number }[] = [
+    { c: [O.x0 + R, O.y0 + R], a0: Math.PI },
+    { c: [O.x1 - R, O.y0 + R], a0: 1.5 * Math.PI },
+    { c: [O.x1 - R, O.y1 - R], a0: 0 },
+    { c: [O.x0 + R, O.y1 - R], a0: 0.5 * Math.PI },
+  ];
+  const prof = GF.pocket;
+  for (let k = 0; k < prof.length - 1; k++) {
+    const [za, da] = prof[k], [zb, db] = prof[k + 1];
+    if (zb - za < 1e-6) continue;
+    const sides = (d: number): Pt2[][] => [
+      [[O.x0 + R, O.y0], [O.x1 - R, O.y0], [O.x1 - R, O.y0 + d], [O.x0 + R, O.y0 + d]],
+      [[O.x1 - R, O.y1], [O.x0 + R, O.y1], [O.x0 + R, O.y1 - d], [O.x1 - R, O.y1 - d]],
+      [[O.x0, O.y1 - R], [O.x0, O.y0 + R], [O.x0 + d, O.y0 + R], [O.x0 + d, O.y1 - R]],
+      [[O.x1, O.y0 + R], [O.x1, O.y1 - R], [O.x1 - d, O.y1 - R], [O.x1 - d, O.y0 + R]],
+    ];
+    const sa = sides(da), sb = sides(db);
+    sa.forEach((q, i) => out.push(prismPolyN(q, sb[i], za + zOff, zb + zOff)));
+    corners.forEach((cn) => {
+      const ra = R - da, rb = R - db;
+      for (let s = 0; s < GF_ARC; s++) {
+        const t0 = cn.a0 + (s / GF_ARC) * Math.PI / 2, t1 = cn.a0 + ((s + 1) / GF_ARC) * Math.PI / 2;
+        const B = (t: number): Pt2 => {
+          const cs = Math.cos(t), sn = Math.sin(t), m = R / Math.max(Math.abs(cs), Math.abs(sn));
+          return [cn.c[0] + m * cs, cn.c[1] + m * sn];
+        };
+        const A = (t: number, r: number): Pt2 => [cn.c[0] + r * Math.cos(t), cn.c[1] + r * Math.sin(t)];
+        const qa: Pt2[] = [A(t0, ra), B(t0), B(t1), A(t1, ra)];
+        const qb: Pt2[] = [A(t0, rb), B(t0), B(t1), A(t1, rb)];
+        if (ringArea(qa) < 0) {
+          qa.reverse();
+          qb.reverse();
+        }
+        out.push(prismPolyN(qa, qb, za + zOff, zb + zOff));
+      }
+    });
+  }
+}
+
+// The magnet floor for one cell. `full` is the whole 42 mm cell, `outer` what the
+// drawer actually leaves of it. Skeletonized like gridfinity-rebuilt's plate: a ring
+// under the pocket walls plus a pad in each corner carrying a magnet pocket, with a
+// plus-shaped opening between them. A magnet pocket only goes where it fits whole.
+export function gfFloorLayout(full: Box2, outer: Box2) {
+  const P = GF.pitch, x0 = full.x0, y0 = full.y0, rw = GF.floorRing, pad = GF.floorPad;
+  const clip = (r: Box2): Box2 => ({
+    x0: Math.max(r.x0, outer.x0), x1: Math.min(r.x1, outer.x1),
+    y0: Math.max(r.y0, outer.y0), y1: Math.min(r.y1, outer.y1),
+  });
+  const cut = [
+    { x0: x0 + pad, x1: x0 + P - pad, y0: y0 + rw, y1: y0 + P - rw },
+    { x0: x0 + rw, x1: x0 + P - rw, y0: y0 + pad, y1: y0 + P - pad },
+  ]
+    .map(clip)
+    .filter((r) => r.x1 > r.x0 + 0.01 && r.y1 > r.y0 + 0.01);
+  const mags: { cx: number; cy: number; sq: Box2 }[] = [];
+  ([[-1, -1], [1, -1], [1, 1], [-1, 1]] as Pt2[]).forEach(([sx, sy]) => {
+    const cx = x0 + P / 2 + sx * GF.magOff, cy = y0 + P / 2 + sy * GF.magOff, h = GF.magBox;
+    const sq = { x0: cx - h, x1: cx + h, y0: cy - h, y1: cy + h };
+    if (sq.x0 >= outer.x0 - 1e-6 && sq.x1 <= outer.x1 + 1e-6 && sq.y0 >= outer.y0 - 1e-6 && sq.y1 <= outer.y1 + 1e-6)
+      mags.push({ cx, cy, sq });
+  });
+  return { cut, mags };
+}
+export function gfFloorSolids(p: Project, full: Box2, outer: Box2, out: Poly[]) {
+  const F = gfFloorH(p);
+  if (F <= 0) return;
+  const { cut, mags } = gfFloorLayout(full, outer);
+  rectsMinusHoles(outer, cut.concat(mags.map((m) => m.sq))).forEach((r) =>
+    out.push(boxPoly(r.x0, r.y0, 0, r.x1 - r.x0, r.y1 - r.y0, F)),
+  );
+  const SEG = 32, h = GF.magBox, mr = GF.magR, sk = GF.skin; // SEG/8 whole: rays land on the square's corners
+  mags.forEach((m) => {
+    out.push(boxPoly(m.sq.x0, m.sq.y0, 0, 2 * h, 2 * h, sk)); // skin under the magnet
+    for (let s = 0; s < SEG; s++) {
+      const t0 = (s / SEG) * 2 * Math.PI, t1 = ((s + 1) / SEG) * 2 * Math.PI;
+      const B = (t: number): Pt2 => {
+        const cs = Math.cos(t), sn = Math.sin(t), k = h / Math.max(Math.abs(cs), Math.abs(sn));
+        return [m.cx + k * cs, m.cy + k * sn];
+      };
+      const A = (t: number): Pt2 => [m.cx + mr * Math.cos(t), m.cy + mr * Math.sin(t)];
+      const q: Pt2[] = [A(t0), B(t0), B(t1), A(t1)];
+      if (ringArea(q) < 0) q.reverse();
+      out.push(prismPolyN(q, q, sk, F));
+    }
+  });
+}
+
+/** Rounded-rectangle ring for one cell at a given inset from the cell edge, CCW. */
+export function gfRing(x0: number, y0: number, inset: number): Pt2[] {
+  const R = GF.rc, r = Math.max(0.01, R - inset), x1 = x0 + GF.pitch, y1 = y0 + GF.pitch;
+  const cs: [number, number, number][] = [
+    [x0 + R, y0 + R, Math.PI], [x1 - R, y0 + R, 1.5 * Math.PI],
+    [x1 - R, y1 - R, 0], [x0 + R, y1 - R, 0.5 * Math.PI],
+  ];
+  const pts: Pt2[] = [];
+  cs.forEach(([cx, cy, a0]) => {
+    for (let s = 0; s <= GF_ARC; s++) {
+      const t = a0 + (s / GF_ARC) * Math.PI / 2;
+      pts.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]);
+    }
+  });
+  return pts;
+}
+
+export function pushTriFacing(tris: Tri[], a: Vec3, b: Vec3, c: Vec3, want: Vec3) {
+  const n = [
+    (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]),
+    (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]),
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]),
+  ];
+  if (n[0] * want[0] + n[1] * want[1] + n[2] * want[2] < 0) pushTri(tris, a, c, b);
+  else pushTri(tris, a, b, c);
+}
+
+// A foot for a part cell: the standard foot, cut off flush with the bin's side.
+// Each band of the profile is a convex loft, so it can be clipped exactly and stays
+// a closed shell. No magnet pockets — the cut would run through them.
+export function gfFootTrimmed(tris: Tri[], x0: number, y0: number, W: number, D: number) {
+  const rings = GF.foot.map(([z, ins]) => ({ z, pts: gfRing(x0, y0, ins) }));
+  for (let k = 0; k < rings.length - 1; k++) {
+    const A = rings[k], B = rings[k + 1];
+    if (B.z - A.z < 1e-6) continue;
+    const c = clipToRect(prismPolyN(A.pts, B.pts, A.z, B.z), 0, 0, W, D);
+    if (c) polyToTris(c, tris);
+  }
+}
+
+// A standard Gridfinity foot for the cell whose edge is at (x0,y0) in bin-local mm,
+// as a closed shell from z=0 to the foot top. Magnet pockets come up from below.
+export function gfFootTris(tris: Tri[], x0: number, y0: number, magnets: boolean) {
+  const cx = x0 + GF.pitch / 2, cy = y0 + GF.pitch / 2;
+  const rings = GF.foot.map(([z, ins]) => ({ z, pts: gfRing(x0, y0, ins) }));
+  const n = rings[0].pts.length;
+  for (let k = 0; k < rings.length - 1; k++) {
+    const A = rings[k], B = rings[k + 1];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const a: Vec3 = [...A.pts[i], A.z], b: Vec3 = [...A.pts[j], A.z];
+      const c: Vec3 = [...B.pts[j], B.z], d: Vec3 = [...B.pts[i], B.z];
+      const want: Vec3 = [(A.pts[i][0] + A.pts[j][0]) / 2 - cx, (A.pts[i][1] + A.pts[j][1]) / 2 - cy, 0];
+      pushTriFacing(tris, a, b, c, want);
+      pushTriFacing(tris, a, c, d, want);
+    }
+  }
+  const top = rings[rings.length - 1];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    pushTriFacing(tris, [cx, cy, top.z], [...top.pts[i], top.z], [...top.pts[j], top.z], [0, 0, 1]);
+  }
+  const bot = rings[0];
+  if (!magnets) {
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      pushTriFacing(tris, [cx, cy, 0], [...bot.pts[i], 0], [...bot.pts[j], 0], [0, 0, -1]);
+    }
+    return;
+  }
+  const SEG = 24, o = GF.magOff, mr = GF.magR, md = GF.magDepth;
+  const holes = ([[-o, -o], [o, -o], [o, o], [-o, o]] as Pt2[]).map(([dx, dy]) => {
+    const pts: Pt2[] = [];
+    for (let s = 0; s < SEG; s++) {
+      const t = -(s / SEG) * 2 * Math.PI;
+      pts.push([cx + dx + mr * Math.cos(t), cy + dy + mr * Math.sin(t)]);
+    }
+    return { c: [cx + dx, cy + dy] as Pt2, pts };
+  });
+  const contour = bot.pts.map((p) => new Vector2(p[0], p[1]));
+  const hv = holes.map((h) => h.pts.map((p) => new Vector2(p[0], p[1])));
+  const all: Pt2[] = bot.pts.concat(...holes.map((h) => h.pts));
+  ShapeUtils.triangulateShape(contour, hv).forEach(([a, b, c]) => {
+    pushTriFacing(tris, [...all[a], 0], [...all[b], 0], [...all[c], 0], [0, 0, -1]);
+  });
+  holes.forEach((h) => {
+    for (let s = 0; s < SEG; s++) {
+      const p = h.pts[s], q = h.pts[(s + 1) % SEG];
+      const want: Vec3 = [h.c[0] - (p[0] + q[0]) / 2, h.c[1] - (p[1] + q[1]) / 2, 0]; // faces into the pocket
+      pushTriFacing(tris, [...p, 0], [...q, 0], [...q, md], want);
+      pushTriFacing(tris, [...p, 0], [...q, md], [...p, md], want);
+      pushTriFacing(tris, [...h.c, md], [...p, md], [...q, md], [0, 0, -1]); // pocket ceiling
+    }
+  });
+}
+
 // ---------- socket grid ----------
 // The plate carries a uniform grid of tapered sockets — one every "Grid reference"
 // spacing — independent of any bin. A bin's foot is just a set of pegs, one per grid
@@ -240,6 +469,7 @@ function plateHoles(p: Project): Box2[] {
 }
 
 interface GridCtx {
+  p: Project;
   bnd: ReturnType<typeof usableBounds>;
   unit: number;
   socketTop: number;
@@ -254,6 +484,7 @@ function gridContext(p: Project): GridCtx {
   const bnd = usableBounds(p);
   const geo = pegGeometry(p);
   return {
+    p,
     bnd,
     unit: geo.unit,
     socketTop: geo.socketTop,
@@ -275,6 +506,14 @@ export interface SocketInfo {
   ti: number;
   cx: number;
   cy: number;
+  /** Gridfinity pocket rather than the custom tapered socket */
+  gf?: boolean;
+  /** a part cell at the far wall, so the pocket is cut off on that side */
+  partial?: boolean;
+  /** the whole 42 mm cell the pocket is built from, before the wall trims it */
+  full?: Box2;
+  /** what a magnet plate presents at its underside: the skeleton floor's openings */
+  floorCut?: Box2[];
 }
 // The socket at (i,j) — or null wherever the plate can't offer one: off the grid, or
 // a sliver at the wall too narrow to seat a foot. Obstructions deliberately do NOT
@@ -283,6 +522,27 @@ function gridSocketAt(i: number, j: number, ctx: GridCtx): SocketInfo | null {
   if (i < 0 || j < 0 || i > ctx.iMax || j > ctx.jMax) return null;
   const outer = gridCellRect(i, j, ctx);
   if (outer.x1 - outer.x0 < 0.01 || outer.y1 - outer.y0 < 0.01) return null;
+  if (gfOn(ctx.p)) {
+    // A part cell at the far wall carries the same pocket, trimmed off by the wall —
+    // open on that side, like the edge of any cut-down Gridfinity baseplate.
+    const cw = outer.x1 - outer.x0, cd = outer.y1 - outer.y0;
+    if (cw < GF.minPartial || cd < GF.minPartial) return null;
+    const n = GF.pocket[0][1], cutX = cw < GF.pitch - 0.01, cutY = cd < GF.pitch - 0.01;
+    // the flat the pocket leaves on top of the wall, so the stacker lines rims up with
+    // rims — with nothing at a side the drawer wall cut off
+    const e = GF.rimLand / 2;
+    return {
+      outer,
+      op: { x0: outer.x0 + e, y0: outer.y0 + e, x1: cutX ? outer.x1 : outer.x1 - e, y1: cutY ? outer.y1 : outer.y1 - e },
+      gf: true,
+      partial: cutX || cutY,
+      ti: GF.pocket[2][1],
+      full: { x0: outer.x0, y0: outer.y0, x1: outer.x0 + GF.pitch, y1: outer.y0 + GF.pitch },
+      cx: outer.x0 + GF.pitch / 2,
+      cy: outer.y0 + GF.pitch / 2,
+      narrow: { x0: outer.x0 + n, x1: cutX ? outer.x1 : outer.x1 - n, y0: outer.y0 + n, y1: cutY ? outer.y1 : outer.y1 - n },
+    };
+  }
   const ccx = outer.x0 + ctx.unit / 2, ccy = outer.y0 + ctx.unit / 2;
   // the socket holds its true place on the pitch and is then trimmed by the wall
   const op = {
@@ -358,9 +618,48 @@ export function footCellsFor(p: Project, bin: Bin, unit: number) {
   return cells;
 }
 
+export interface GfFootCell {
+  i: number;
+  j: number;
+  /** the cell's near corner in bin-local mm */
+  lx: number;
+  ly: number;
+  cx: number;
+  cy: number;
+  partial: boolean;
+}
+/** Gridfinity feet: one per whole cell the bin covers (a snapped bin covers its cells
+ *  exactly). On the plate a cell also needs a pocket under it to count. */
+export function gfFootCellsFor(p: Project, bin: Bin): GfFootCell[] {
+  const ctx = gridContext(p), P = GF.pitch;
+  const onPlate = bin.parentId == null && p.baseplateEnabled;
+  const ox = ctx.bnd.minX, oy = ctx.bnd.minY;
+  const cells: GfFootCell[] = [];
+  const i0 = Math.floor((bin.x - ox) / P + 1e-6), i1 = Math.ceil((bin.x + bin.w - ox) / P - 1e-6);
+  const j0 = Math.floor((bin.y - oy) / P + 1e-6), j1 = Math.ceil((bin.y + bin.d - oy) / P - 1e-6);
+  for (let j = j0; j < j1; j++)
+    for (let i = i0; i < i1; i++) {
+      const cx0 = ox + i * P, cy0 = oy + j * P;
+      // the cell as the drawer actually has it — a part cell at the far wall is short
+      const cw = Math.min(cx0 + P, ctx.bnd.maxX) - cx0, cd = Math.min(cy0 + P, ctx.bnd.maxY) - cy0;
+      const cov =
+        (Math.min(cx0 + P, bin.x + bin.w) - Math.max(cx0, bin.x)) * (Math.min(cy0 + P, bin.y + bin.d) - Math.max(cy0, bin.y));
+      if (cw < GF.minPartial || cd < GF.minPartial) continue;
+      if (cov < (cw - 2 * GF.clear) * (cd - 2 * GF.clear) - 0.5) continue; // the bin has to fill the cell
+      if (onPlate && !gridSocketAt(i, j, ctx)) continue;
+      const partial = cw < P - 0.01 || cd < P - 0.01;
+      // a trimmed foot narrower than this is a splinter, not a foot worth printing
+      if (partial && (Math.min(cx0 + P, bin.x + bin.w) - cx0 < MIN_FOOT + 0.25 || Math.min(cy0 + P, bin.y + bin.d) - cy0 < MIN_FOOT + 0.25))
+        continue;
+      cells.push({ i, j, lx: cx0 - bin.x, ly: cy0 - bin.y, cx: cx0 + P / 2, cy: cy0 + P / 2, partial });
+    }
+  return cells;
+}
+
 /** True when a floor bin straddles the grid without covering enough of any cell to grow a foot. */
 export function isLooseBin(p: Project, bin: Bin, level: number) {
-  return level === 1 && p.baseplateEnabled && footCellsFor(p, bin, pegGeometry(p).unit).length === 0;
+  if (level !== 1 || !p.baseplateEnabled) return false;
+  return (gfOn(p) ? gfFootCellsFor(p, bin) : footCellsFor(p, bin, pegGeometry(p).unit)).length === 0;
 }
 
 // ---------- bin ----------
@@ -376,7 +675,11 @@ export function binTriangles(p: Project, bin: Bin): Tri[] {
   const lip = lipGeometry(p);
   const ins = binBottomInset(p, bin);
 
-  if (!stacked && fh > 0) {
+  if (!stacked && fh > 0 && gfOn(p)) {
+    gfFootCellsFor(p, bin).forEach((c) =>
+      c.partial ? gfFootTrimmed(tris, c.lx, c.ly, W, D) : gfFootTris(tris, c.lx, c.ly, p.gfMagnets),
+    );
+  } else if (!stacked && fh > 0) {
     footCellsFor(p, bin, pegGeometry(p).unit).forEach((c) => {
       addPrism4(tris, rectQuad(c.bot.x0, c.bot.y0, c.bot.x1, c.bot.y1), rectQuad(c.top.x0, c.top.y0, c.top.x1, c.top.y1), 0, fh);
     });
@@ -393,7 +696,7 @@ export function binTriangles(p: Project, bin: Bin): Tri[] {
     }
   } else {
     // on the plate: the slab's underside is pulled in and chamfers back out
-    const cham = Math.max(0, Math.min(ins, f));
+    const cham = gfOn(p) ? 0 : Math.max(0, Math.min(ins, f)); // Gridfinity bins sit flat on the frame
     if (ins > 0.01 && cham > 0.01) {
       addPrism4(tris, rectQuad(ins, ins, W - ins, D - ins), rectQuad(0, 0, W, D), z0, z0 + cham);
       addBox(tris, 0, 0, z0 + cham, W, D, f - cham);
@@ -508,6 +811,24 @@ export function buildPlate(p: Project): Plate {
   };
   const taperZ = Math.max(0, thick - fh); // the tapered mouth occupies the top fh
   infos.forEach((inf) => {
+    if (inf.gf) {
+      const F = gfFloorH(p);
+      const full = inf.full as Box2;
+      gfFloorSolids(p, full, inf.outer, solids);
+      if (F > 0) inf.floorCut = gfFloorLayout(full, inf.outer).cut;
+      if (!inf.partial) {
+        gfPocketSolids(inf.outer, solids, F);
+        return;
+      }
+      const tmp: Poly[] = [];
+      gfPocketSolids(full, tmp, F);
+      const O = inf.outer;
+      tmp.forEach((q) => {
+        const c = clipToRect(q, O.x0, O.y0, O.x1, O.y1);
+        if (c) solids.push(c);
+      });
+      return;
+    }
     const A = inf.op, O = inf.outer;
     const narrow = inf.narrow;
     const wide = { x0: A.x0, x1: A.x1, y0: A.y0, y1: A.y1 };
@@ -618,16 +939,16 @@ export function computeBaseplateTiles(p: Project) {
 }
 
 // ---------- stacked plate printing ----------
-// One print job with every baseplate section piled up. Alternate flips put mouth
-// against mouth and throat against throat; a shared grid keeps walls over walls; and
-// biggest-first means nothing juts out over air.
-function flipTrisAboutX(tris: Tri[], d: number, h: number): Tri[] {
-  // 180° about the X axis — mirroring two axes is a rotation, so winding survives
-  return tris.map((t) => t.map((v) => [v[0], d - v[1], h - v[2]]) as Tri);
-}
+// One print job with every baseplate section piled up in a single stack. Each section
+// is turned over from the one below so mouth meets mouth and throat meets throat, a
+// shared grid keeps walls over walls, and biggest-first means nothing juts out over
+// air.
 
-// Sections cut for stacking are cut on cell boundaries, so every section is a whole
-// number of cells and no socket is ever split across a seam.
+// Sections cut for stacking are cut on cell boundaries, which the ordinary sections
+// are not — those are cut wherever they best fit the bed. Two sections the same size
+// but starting at different points in the grid can't be both lined up and sat inside
+// one another, so the pile needs its own cut: every section a whole number of cells,
+// which also means no socket is ever split across a seam.
 function stackCuts(lo: number, hi: number, maxSpan: number, unit: number) {
   const per = Math.max(1, Math.floor(maxSpan / unit));
   const cuts = [lo];
@@ -637,6 +958,7 @@ function stackCuts(lo: number, hi: number, maxSpan: number, unit: number) {
     cuts.push(x);
   }
   cuts.push(hi);
+  // fold a final scrap back into the section before it when the bed has room
   if (cuts.length >= 3) {
     const last = cuts[cuts.length - 1] - cuts[cuts.length - 2];
     const prev = cuts[cuts.length - 2] - cuts[cuts.length - 3];
@@ -666,21 +988,68 @@ function faceRects(tile: Box2, plate: Plate, kind: 'mouth' | 'throat') {
       y1: Math.min(inf.outer.y1, tile.y1),
     };
     if (o.x1 <= o.x0 + 0.01 || o.y1 <= o.y0 + 0.01) return;
-    const h = kind === 'mouth' ? inf.op : inf.narrow;
-    rectsMinusHoles(o, [h].concat(plate.holes || [])).forEach((r) => out.push(r));
+    // the real opening at this face, including any side the drawer wall cut short
+    // a magnet plate's underside is its skeleton floor, not the pocket throat
+    const hs = kind === 'mouth' ? [inf.op] : inf.floorCut || [inf.narrow];
+    rectsMinusHoles(o, hs.concat(plate.holes || [])).forEach((r) => out.push(r));
   });
   return out;
 }
-function placeRects(rects: Box2[], tile: Box2, flip: boolean, nd: number, dx: number, dy: number) {
+
+interface Section {
+  t: Box2;
+  w: number;
+  d: number;
+  /** the section's box rounded up to whole cells, which a turn is taken about */
+  nw: number;
+  nd: number;
+  big: number;
+  small: number;
+}
+/** A section's pose in the pile: turned `rot` quarter-turns about Z (0–3) and then
+ *  optionally turned over about X. Both are rotations, so triangle winding survives.
+ *  Each is taken about the section's cell-rounded box, which keeps every grid line on
+ *  a whole multiple of the pitch in the pile — the short row at a far wall stays in
+ *  phase however the section is turned. */
+interface Pose {
+  rot: number;
+  flip: boolean;
+}
+/** One candidate placement of a section on the one below it. */
+interface Placed {
+  pose: Pose;
+  dx: number;
+  dy: number;
+  /** mm² of this section's underside left over air */
+  bad: number;
+  score: number;
+  /** the section's own box in this pose, before the offset */
+  b: Box2;
+}
+function poseXY(x: number, y: number, s: Section, pose: Pose): [number, number] {
+  const r = pose.rot || 0;
+  if (r === 1) { const t = x; x = s.nd - y; y = t; }
+  else if (r === 2) { x = s.nw - x; y = s.nd - y; }
+  else if (r === 3) { const t = x; x = y; y = s.nw - t; }
+  if (pose.flip) y = (r % 2 ? s.nw : s.nd) - y;
+  return [x, y];
+}
+function poseRects(rects: Box2[], s: Section, pose: Pose, dx: number, dy: number): Box2[] {
   return rects.map((r) => {
-    let y0 = r.y0 - tile.y0, y1 = r.y1 - tile.y0;
-    if (flip) {
-      const t = y0;
-      y0 = nd - y1;
-      y1 = nd - t;
-    }
-    return { x0: r.x0 - tile.x0 + dx, x1: r.x1 - tile.x0 + dx, y0: y0 + dy, y1: y1 + dy };
+    const a = poseXY(r.x0 - s.t.x0, r.y0 - s.t.y0, s, pose), b = poseXY(r.x1 - s.t.x0, r.y1 - s.t.y0, s, pose);
+    return { x0: Math.min(a[0], b[0]) + dx, x1: Math.max(a[0], b[0]) + dx, y0: Math.min(a[1], b[1]) + dy, y1: Math.max(a[1], b[1]) + dy };
   });
+}
+function poseTris(tris: Tri[], s: Section, pose: Pose, h: number): Tri[] {
+  return tris.map((t) =>
+    t.map((v) => {
+      const [x, y] = poseXY(v[0], v[1], s, pose);
+      return [x, y, pose.flip ? h - v[2] : v[2]];
+    }) as Tri,
+  );
+}
+function poseBox(s: Section, pose: Pose) {
+  return poseRects([{ x0: s.t.x0, y0: s.t.y0, x1: s.t.x1, y1: s.t.y1 }], s, pose, 0, 0)[0];
 }
 function rectArea(r: Box2) {
   return Math.max(0, r.x1 - r.x0) * Math.max(0, r.y1 - r.y0);
@@ -704,90 +1073,119 @@ export function buildStackedPlates(p: Project) {
   const plate = buildPlate(p);
   const tiles = stackTiles(p);
   if (!tiles.length)
-    return { piles: [], objects: [] as MeshObject[], notes: ['There are no baseplate sections to stack.'], height: 0, count: 0 };
+    return { objects: [] as MeshObject[], notes: ['There are no baseplate sections to stack.'], height: 0, width: 0, depth: 0, count: 0, turned: 0, overhangs: 0 };
   const thick = p.baseThick;
   const unit = pegGeometry(p).unit;
   const gapH = Math.max(0.2, p.stackGap);
+  const pad = 4, bedW = p.bed.x - pad * 2, bedD = p.bed.y - pad * 2;
+  const ru = (v: number) => Math.ceil(v / unit - 1e-6) * unit;
 
-  const sections = tiles
+  // Every section is a whole number of cells and starts on a cell line, so any offset
+  // that is a whole number of cells keeps the grids in step. Biggest first, judged by
+  // the longer side and then the shorter: with quarter turns allowed, that is the
+  // order in which each section fits inside the one before it.
+  const sections: Section[] = tiles
     .map((t) => {
       const w = t.x1 - t.x0, d = t.y1 - t.y0;
-      return { t, w, d, nd: Math.ceil(d / unit - 1e-6) * unit };
+      return { t, w, d, nw: ru(w), nd: ru(d), big: Math.max(w, d), small: Math.min(w, d) };
     })
-    .sort((a, b) => b.w * b.d - a.w * a.d);
-  type Section = (typeof sections)[number];
-  interface Pile {
-    items: { s: Section; flip: boolean; dx: number; dy: number }[];
-    topRects: Box2[];
-    x0: number;
-    x1: number;
-    y0: number;
-    y1: number;
-  }
+    .sort((a, b) => b.big - a.big || b.small - a.small || b.w * b.d - a.w * a.d);
 
-  // A section joins a pile only where its underside lands entirely on what is already there.
-  const piles: Pile[] = [];
+  // ONE pile. Each section goes on top of the last, turned over from it so the faces
+  // meet like for like, and is tried both ways round and at every in-step offset;
+  // the placement that leaves nothing hanging over air wins. Only when no placement
+  // is fully carried does it take the one with the least overhang — the slicer's
+  // supports then hold that edge up from the bed.
+  const items: { s: Section; pose: Pose; dx: number; dy: number }[] = [];
   const notes: string[] = [];
-  sections.forEach((s) => {
-    for (const pile of piles) {
-      const flip = pile.items.length % 2 === 1;
-      const raw = faceRects(s.t, plate, flip ? 'mouth' : 'throat');
-      const my0 = flip ? s.nd - s.d : 0;
-      let best: { dx: number; dy: number; bad: number } | null = null;
-      for (let dx = pile.x0; dx + s.w <= pile.x1 + 0.01; dx += unit) {
-        for (let dy = pile.y0 - my0; dy + my0 + s.d <= pile.y1 + 0.01; dy += unit) {
-          const cand = placeRects(raw, s.t, flip, s.nd, dx, dy);
-          const bad = unsupportedArea(cand, pile.topRects);
-          if (!best || bad < best.bad) best = { dx, dy, bad };
-          if (bad < 0.01) break;
-        }
-        if (best && best.bad < 0.01) break;
-      }
-      if (best && best.bad < 0.01) {
-        pile.items.push({ s, flip, dx: best.dx, dy: best.dy });
-        pile.topRects = placeRects(faceRects(s.t, plate, flip ? 'throat' : 'mouth'), s.t, flip, s.nd, best.dx, best.dy);
-        pile.x0 = best.dx;
-        pile.x1 = best.dx + s.w;
-        pile.y0 = best.dy + my0;
-        pile.y1 = best.dy + my0 + s.d;
-        return;
-      }
+  let topRects: Box2[] = [], top: Box2 | null = null, overhangs = 0, worstOver = 0;
+  sections.forEach((s, k) => {
+    const flip = k % 2 === 1;
+    // all four quarter turns: a short row or column at a wall has to land on the same
+    // side as the one below it, and only the right turn puts it there
+    let poses: Pose[] = [0, 2, 1, 3]
+      .map((rot) => ({ rot, flip }))
+      .filter((pose) => {
+        const b = poseBox(s, pose);
+        return b.x1 - b.x0 <= bedW + 0.01 && b.y1 - b.y0 <= bedD + 0.01;
+      });
+    if (!poses.length) poses = [{ rot: 0, flip }];
+    if (!top) {
+      const pose = poses[0];
+      items.push({ s, pose, dx: 0, dy: 0 });
+      topRects = poseRects(faceRects(s.t, plate, flip ? 'throat' : 'mouth'), s, pose, 0, 0);
+      top = poseBox(s, pose);
+      return;
     }
-    piles.push({
-      items: [{ s, flip: false, dx: 0, dy: 0 }],
-      topRects: placeRects(faceRects(s.t, plate, 'mouth'), s.t, false, s.nd, 0, 0),
-      x0: 0, x1: s.w, y0: 0, y1: s.d,
+    const below = top;
+    const found: { best: Placed | null } = { best: null };
+    poses.forEach((pose) => {
+      const b = poseBox(s, pose);
+      const raw = faceRects(s.t, plate, flip ? 'mouth' : 'throat');
+      // every in-step offset that keeps the section over the footprint below, plus a
+      // margin of one cell each way for the overhang fallback
+      const lo = (v: number) => Math.floor(v / unit) * unit;
+      for (let dx = lo(below.x0 - b.x0) - unit; dx + b.x0 <= below.x1 + unit + 0.01; dx += unit) {
+        for (let dy = lo(below.y0 - b.y0) - unit; dy + b.y0 <= below.y1 + unit + 0.01; dy += unit) {
+          const cand = poseRects(raw, s, pose, dx, dy);
+          const bad = unsupportedArea(cand, topRects);
+          // ties go to the unturned pose, then to staying centred on the one below
+          const off =
+            Math.abs(dx + (b.x0 + b.x1) / 2 - (below.x0 + below.x1) / 2) + Math.abs(dy + (b.y0 + b.y1) / 2 - (below.y0 + below.y1) / 2);
+          const score = bad * 1e6 + (pose.rot % 2 ? 2e3 : pose.rot ? 1e3 : 0) + off;
+          if (!found.best || score < found.best.score) found.best = { pose, dx, dy, bad, score, b };
+        }
+      }
     });
+    const pick = found.best as Placed;
+    if (pick.bad >= 0.01) {
+      overhangs++;
+      worstOver = Math.max(worstOver, pick.bad);
+    }
+    items.push({ s, pose: pick.pose, dx: pick.dx, dy: pick.dy });
+    topRects = poseRects(faceRects(s.t, plate, flip ? 'throat' : 'mouth'), s, pick.pose, pick.dx, pick.dy);
+    top = { x0: pick.b.x0 + pick.dx, x1: pick.b.x1 + pick.dx, y0: pick.b.y0 + pick.dy, y1: pick.b.y1 + pick.dy };
   });
 
-  // Lay the piles out side by side, each pile ONE object (slicers drop free-standing
-  // objects to the bed). Sections are separated by plain air for support to fill.
-  const objects: MeshObject[] = [];
-  let id = 0, originX = 0, tallest = 0;
-  piles.forEach((pile) => {
-    let z = 0, pw = 0;
-    const merged: Tri[] = [];
-    pile.items.forEach((it, k) => {
-      const { s, flip, dx, dy } = it;
-      if (k > 0) z += gapH;
-      const tris = tileTriangles(p, s.t, plate);
-      const oriented = flip ? flipTrisAboutX(tris, s.nd, thick) : tris;
-      const zz = z;
-      oriented.forEach((t) => merged.push(t.map((v) => [v[0] + dx, v[1] + dy, v[2] + zz]) as Tri));
-      z += thick;
-      pw = Math.max(pw, dx + s.w);
-    });
-    if (merged.length) objects.push({ id: ++id, tris: merged, transform: [originX, 0, 0] });
-    tallest = Math.max(tallest, z);
-    originX += pw + 6;
-  });
-  if (piles.length > 1)
-    notes.push(
-      'The sections could not all carry one another, so they are laid out as ' +
-        piles.length +
-        ' separate piles side by side — print them together if they fit your bed, or move them into separate jobs.',
+  // Sections are separated by plain air, not by a layer of plastic. A layer would be
+  // the same material at full contact and simply weld the sections into one lump.
+  // The gap leaves the slicer to fill it with its own support, whose interface layers
+  // are built to release. Lining the grids up still earns its keep: the gap sits
+  // directly over the wall below, so the support stands on solid material a gap's
+  // height down instead of reaching up through open sockets.
+  //
+  // The pile is merged into a single object because slicers drop free-standing
+  // objects onto the bed — as separate objects the sections would all land at z=0.
+  let z = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const merged: Tri[] = [];
+  items.forEach((it, k) => {
+    if (k > 0) z += gapH;
+    const zz = z;
+    poseTris(tileTriangles(p, it.s.t, plate), it.s, it.pose, thick).forEach((t) =>
+      merged.push(
+        t.map((v) => {
+          const q: Vec3 = [v[0] + it.dx, v[1] + it.dy, v[2] + zz];
+          if (q[0] < minX) minX = q[0];
+          if (q[0] > maxX) maxX = q[0];
+          if (q[1] < minY) minY = q[1];
+          if (q[1] > maxY) maxY = q[1];
+          return q;
+        }) as Tri,
+      ),
     );
-  return { piles, objects, notes, height: tallest, count: sections.length };
+    z += thick;
+  });
+  // bring the pile's footprint to the origin
+  merged.forEach((t) => t.forEach((v) => { v[0] -= minX; v[1] -= minY; }));
+  const objects: MeshObject[] = merged.length ? [{ id: 1, tris: merged, transform: [0, 0, 0] }] : [];
+  const turned = items.filter((it) => it.pose.rot % 2).length;
+  if (turned) notes.push(turned + ' section(s) are turned a quarter so they fit inside the one below.');
+  if (overhangs)
+    notes.push(
+      overhangs + ' section(s) could not sit wholly on the one below (worst overhang ' + Math.round(worstOver) +
+        ' mm²); with supports set to everywhere the slicer holds those edges up from the bed.',
+    );
+  return { objects, notes, height: z, width: maxX - minX, depth: maxY - minY, count: sections.length, turned, overhangs };
 }
 
 // ---------- plate packing ----------

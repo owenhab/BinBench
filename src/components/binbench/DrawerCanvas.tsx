@@ -194,7 +194,7 @@ export default function DrawerCanvas(props: Props) {
     <div
       ref={wrapRef}
       className="overflow-auto rounded-field border p-4"
-      style={{ background: 'var(--bb-ink)', borderColor: 'var(--bb-line)' }}
+      style={{ background: 'var(--bb-field)', borderColor: 'var(--bb-line)' }}
     >
       <svg
         ref={svgRef}

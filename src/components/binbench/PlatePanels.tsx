@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { type Project, binName } from '@/lib/binbench/model';
-import { type Box2, buildStackedPlates, computeBaseplateTiles, floorBins, packPlates, tileTriangles } from '@/lib/binbench/geometry';
-import { download3MF, downloadAllPlates3MF, downloadPlate3MF, safeFileName } from '@/lib/binbench/exporters';
+import { type Box2, buildStackedPlates, computeBaseplateTiles, floorBins, packPlates } from '@/lib/binbench/geometry';
+import {
+  centreOnBed, download3MF, downloadAllPlates3MF, downloadAllSections3MF, downloadPlate3MF, downloadSection3MF, safeFileName,
+} from '@/lib/binbench/exporters';
 import { LengthField, Section, UnitSuffix } from './fields';
 import type { Units } from './units';
 
@@ -55,8 +57,8 @@ export function PlatePacking({ project: p, onStatus }: { project: Project; onSta
         </button>
       </div>
       <p className="bb-hint">
-        One file with every bin already laid out, each plate tagged so Bambu Studio opens them as separate plates. Other slicers
-        ignore the tagging and show the plates side by side instead — arrange from there.
+        One file with every bin already laid out and placed where Bambu Studio keeps that plate, so it opens with the plates ready to
+        slice. Other slicers ignore the plate tagging and show all the bins at once, spread out in the same grid — arrange from there.
       </p>
     </Section>
   );
@@ -77,15 +79,22 @@ export function BaseplateSections({
     msgs.push(splitCount + ' socket' + (splitCount === 1 ? ' is' : 's are') + ' split across a plate seam — print the tiles, then butt them together and glue or tape the seam.');
 
   const stacked = () => {
-    const { piles, objects, notes, height, count } = buildStackedPlates(p);
+    const { objects, notes, height, width, depth, count } = buildStackedPlates(p);
     if (!objects.length) return onStatus(notes[0] || 'Nothing to stack.', true);
     const out = notes.slice();
     if (height > p.bed.z)
-      out.push('The tallest pile is ' + units.fmt(height) + ', over the ' + units.fmt(p.bed.z) +
+      out.push('The stack is ' + units.fmt(height) + ' tall, over the ' + units.fmt(p.bed.z) +
         ' your printer can reach — raise the bed height or use a coarser grid so there are fewer sections.');
-    void download3MF(objects, safeFileName(p.projectName) + '_baseplates_stacked');
+    if (width > p.bed.x + 0.01 || depth > p.bed.y + 0.01)
+      out.push('The stack is ' + units.fmt(width) + '×' + units.fmt(depth) + ', bigger than the bed.');
+    // the pile is built at the origin; stand it in the middle of the bed
+    const mid = centreOnBed(p.bed, width, depth);
+    void download3MF(
+      objects.map((o) => ({ ...o, transform: [mid.x, mid.y, 0] as [number, number, number] })),
+      safeFileName(p.projectName) + '_baseplates_stacked',
+    );
     onStatus(
-      count + ' section(s) in ' + piles.length + ' pile' + (piles.length === 1 ? '' : 's') + ', ' + units.fmt(height) + ' tall' +
+      count + ' section(s) in one stack, ' + units.fmt(height) + ' tall' +
         (out.length ? ' — ' + out.join(' ') : ' — turn on supports set to everywhere, not just the build plate, or the sections will print in mid-air.'),
       out.length > 0,
     );
@@ -105,7 +114,7 @@ export function BaseplateSections({
         {tiles.map((tile, idx) => (
           <PlateCard key={idx} label="Download 3MF"
             title={'Plate ' + (idx + 1) + ' · ' + units.fmt(tile.x1 - tile.x0) + '×' + units.fmt(tile.y1 - tile.y0) + ' · ' + (touch.get(tile)?.length ?? 0) + ' socket(s)'}
-            onDownload={() => void download3MF([{ id: 1, tris: tileTriangles(p, tile, plate), transform: [0, 0, 0] }], 'baseplate_plate_' + (idx + 1))}>
+            onDownload={() => void downloadSection3MF(p, tile, plate, idx)}>
             <TileSvg p={p} tile={tile} plate={plate} px={px} />
           </PlateCard>
         ))}
@@ -114,12 +123,21 @@ export function BaseplateSections({
         <LengthField className="max-w-[150px]" label={<>Support gap <UnitSuffix units={units} /></>} value={p.stackGap} units={units}
           step={0.1} min={0.4} onCommit={(v) => onStackGap(v ? v : 1.0)} />
         <button type="button" className="bb-btn bb-btn-xs bb-btn-primary mb-0.5" onClick={stacked}>Print all sections in one stack (3MF)</button>
+        <button type="button" className="bb-btn bb-btn-xs mb-0.5" disabled={!tiles.length}
+          onClick={async () => { const r = await downloadAllSections3MF(p); onStatus(r.msg, r.err); }}>
+          Export every section flat as one 3MF
+        </button>
       </div>
       <p className="bb-hint">
-        Piles every section into a single job, each one turned over from the last so the socket faces meet squarely, lined up on a
-        shared grid and biggest at the bottom. The sections are separated by an air gap, not by plastic —{' '}
-        <b>turn supports on and set them to everywhere, not just the build plate</b>, and the slicer fills each gap with support that
-        peels off to free the sections.
+        <b>In one stack:</b> every section piled up, each one turned over from the last so the socket faces meet squarely, turned a
+        quarter where that is what makes it fit inside the one below, lined up on a shared grid and biggest at the bottom. The sections
+        are separated by an air gap, not by plastic — <b>turn supports on and set them to everywhere, not just the build plate</b>, and
+        the slicer fills each gap with support that peels off to free the sections.
+      </p>
+      <p className="bb-hint">
+        <b>Flat as one 3MF:</b> the same sections in one file but lying flat, one to a plate, each centred where Bambu Studio keeps
+        that plate so it opens ready to slice. No supports and no stack height to clear — it just takes a print job per section. Other
+        slicers ignore the plate tagging and show the sections at once, spread out in the same grid.
       </p>
     </Section>
   );
