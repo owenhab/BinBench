@@ -188,8 +188,8 @@ export default function Preview3D({ project: p }: { project: Project }) {
 
     if (show.drawer) {
       const dw = p.drawer.w, dd = p.drawer.d, dh = p.drawer.h;
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x7d6f5a, transparent: true, opacity: 0.26, side: THREE.DoubleSide });
-      const baseMat = new THREE.MeshPhongMaterial({ color: 0x6f6252, flatShading: true, shininess: 6 });
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x9f8a6d, transparent: true, opacity: 0.26, side: THREE.DoubleSide });
+      const baseMat = new THREE.MeshPhongMaterial({ color: 0xbda886, flatShading: true, shininess: 6 });
       const bottom: Tri[] = [];
       addBox(bottom, 0, 0, -wallT, dw, dd, wallT);
       root.add(meshFromTris(bottom, baseMat, cx, cy, 0, bbox));
@@ -203,7 +203,7 @@ export default function Preview3D({ project: p }: { project: Project }) {
     }
     if (showPlate) {
       const { tiles, plate } = computeBaseplateTiles(p);
-      const plateMat = new THREE.MeshPhongMaterial({ color: 0x5c6b5f, flatShading: true, shininess: 6 });
+      const plateMat = new THREE.MeshPhongMaterial({ color: 0x8b9a80, flatShading: true, shininess: 6 });
       tiles.forEach((tile) => {
         const tris = tileTriangles(p, tile, plate);
         if (!tris.length) return;
@@ -214,7 +214,7 @@ export default function Preview3D({ project: p }: { project: Project }) {
     // obstructions are real objects in the drawer, so show them — otherwise a notched
     // baseplate looks like it has holes for no reason
     if (show.drawer && p.blocked.length) {
-      const blkMat = new THREE.MeshPhongMaterial({ color: 0x8f5148, flatShading: true, shininess: 4, transparent: true, opacity: 0.55 });
+      const blkMat = new THREE.MeshPhongMaterial({ color: 0xb0705e, flatShading: true, shininess: 4, transparent: true, opacity: 0.55 });
       const blk: Tri[] = [];
       p.blocked.forEach((bl) => addBox(blk, bl.x, bl.y, 0, bl.w, bl.d, obstructionH(p, bl)));
       root.add(meshFromTris(blk, blkMat, cx, cy, 0, bbox));
@@ -271,7 +271,7 @@ export default function Preview3D({ project: p }: { project: Project }) {
       <div
         ref={hostRef}
         className={'relative h-[320px] w-full overflow-hidden rounded-field border sm:h-[420px] ' + (dragging ? 'cursor-grabbing' : 'cursor-grab')}
-        style={{ borderColor: 'var(--bb-line)', background: 'linear-gradient(180deg,#232827 0%, #151817 100%)' }}
+        style={{ borderColor: 'var(--bb-line)', background: 'linear-gradient(180deg,#f6f1e6 0%, #e4dac6 100%)' }}
       >
         {failed && <div className="bb-empty absolute inset-0 flex items-center justify-center">{failed}</div>}
       </div>

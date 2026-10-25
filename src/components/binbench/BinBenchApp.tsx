@@ -29,7 +29,7 @@ import { type LengthUnit, makeUnits, safeLocalGet, safeLocalSet } from './units'
 import DrawerCanvas from './DrawerCanvas';
 import BinEditor from './BinEditor';
 import Preview3D from './Preview3D';
-import SettingsPanels from './SettingsPanels';
+import SettingsPanels, { AdvancedPanels } from './SettingsPanels';
 import { BinList, ObstructionList, ShelfList } from './ListPanels';
 import { BaseplateSections, PlatePacking } from './PlatePanels';
 import Tour from './Tour';
@@ -57,7 +57,7 @@ function normalize(p: Project): Project {
 }
 
 export default function BinBenchApp() {
-  const [project, setProject] = useState<Project>(defaultProject);
+  const [project, setProject] = useState<Project>(() => normalize(defaultProject()));
   const [lengthUnit, setLengthUnit] = useState<LengthUnit>(() => (safeLocalGet('binBenchUnit') === 'in' ? 'in' : 'mm'));
   const units = useMemo(() => makeUnits(lengthUnit), [lengthUnit]);
   const [dirty, setDirty] = useState(false);
@@ -375,7 +375,6 @@ export default function BinBenchApp() {
             project={p} units={units} update={update} projBadge={projBadge} status={status} setStatus={setStatus}
             canWriteFiles={canWriteFiles} onSave={() => void save()} onSaveAs={() => void saveAs()} onOpen={() => void open()}
             onCopyJson={copyJson} onLoadText={(t) => loadText(t, 'pasted JSON')}
-            onUnitChange={(u) => { setLengthUnit(u); safeLocalSet('binBenchUnit', u); }}
           />
           <input ref={openInput} type="file" accept="application/json,.json" className="hidden" onChange={(e) => {
             const file = e.target.files?.[0];
@@ -391,6 +390,8 @@ export default function BinBenchApp() {
             onDelete={(id) => commitProject({ ...p, blocked: p.blocked.filter((b) => b.id !== id) })} />
           <ShelfList project={p} units={units} onRestore={restoreShelved}
             onDelete={(id) => commitProject({ ...p, shelvedBins: p.shelvedBins.filter((s) => s.shelfId !== id) })} />
+          <AdvancedPanels project={p} units={units} update={update}
+            onUnitChange={(u) => { setLengthUnit(u); safeLocalSet('binBenchUnit', u); }} />
         </aside>
 
         <main className="min-w-0">

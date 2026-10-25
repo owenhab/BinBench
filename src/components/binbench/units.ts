@@ -13,6 +13,8 @@ export interface Units {
   toDisplay: (mm: number) => number;
   toMM: (v: number) => number;
   fmt: (mm: number) => string;
+  /** keeps the decimals the diagrams need; fmt rounds to whole mm */
+  fine: (mm: number) => string;
 }
 
 export function makeUnits(unit: LengthUnit): Units {
@@ -23,6 +25,7 @@ export function makeUnits(unit: LengthUnit): Units {
     toDisplay: (mm) => (inch ? roundTo(mm / MM_PER_IN, 4) : roundTo(mm, 2)),
     toMM: (v) => (inch ? v * MM_PER_IN : v),
     fmt: (mm) => (inch ? roundTo(mm / MM_PER_IN, 2) + '"' : Math.round(mm) + 'mm'),
+    fine: (mm) => (inch ? roundTo(mm / MM_PER_IN, 3) + '"' : roundTo(mm, 2) + 'mm'),
   };
 }
 

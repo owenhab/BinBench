@@ -528,9 +528,9 @@ function gridSocketAt(i: number, j: number, ctx: GridCtx): SocketInfo | null {
     const cw = outer.x1 - outer.x0, cd = outer.y1 - outer.y0;
     if (cw < GF.minPartial || cd < GF.minPartial) return null;
     const n = GF.pocket[0][1], cutX = cw < GF.pitch - 0.01, cutY = cd < GF.pitch - 0.01;
-    // the top face is a knife edge round each cell — counted as a 0.25 mm band so the
-    // stacker lines rims up with rims, with nothing at a side the wall cut off
-    const e = GF.clear;
+    // the flat the pocket leaves on top of the wall, so the stacker lines rims up with
+    // rims — with nothing at a side the drawer wall cut off
+    const e = GF.rimLand / 2;
     return {
       outer,
       op: { x0: outer.x0 + e, y0: outer.y0 + e, x1: cutX ? outer.x1 : outer.x1 - e, y1: cutY ? outer.y1 : outer.y1 - e },

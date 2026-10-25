@@ -8,20 +8,32 @@
 //   every corner arc is centred 4 mm in from the cell edge, so radius = 4 − inset
 //   magnet pockets 6.5 × 2.4 mm, 13 mm each way from the cell centre
 //
+// One departure from the published profile: stock Gridfinity runs each pocket's top
+// chamfer out to the cell edge, so the wall between two pockets ends in a knife edge.
+// It prints badly and chips. `rimLand` gives that wall a flat top instead, taken half
+// out of each cell, and the bin foot is pulled in by the same amount plus the fit
+// clearance so it still drops past it. Our bins sit on a stock baseplate either way;
+// a stock bin on our plate lands `rimLand/2` shy of its seat.
+//
 // This module owns the constants, the mode switch and every bit of snapping. The
 // solids built from the same constants live in geometry.ts.
 import { type Bin, type CustomBp, type Project, type Rect, usableBounds } from './model';
 
+/** flat left on top of the wall between two pockets, shared half-and-half */
+const RIM_LAND = 2;
+const CLEAR = 0.25;
+
 export const GF = {
   pitch: 42,
-  clear: 0.25,
+  clear: CLEAR,
+  rimLand: RIM_LAND,
   hUnit: 7,
   plateH: 4.65,
   footH: 4.75,
   rc: 4,
   /** [z, inset from the cell edge] */
-  pocket: [[0, 2.85], [0.7, 2.15], [2.5, 2.15], [4.65, 0]] as [number, number][],
-  foot: [[0, 3.2], [0.8, 2.4], [2.6, 2.4], [4.75, 0.25]] as [number, number][],
+  pocket: [[0, 2.85], [0.7, 2.15], [2.5, 2.15], [4.65, RIM_LAND / 2]] as [number, number][],
+  foot: [[0, 3.2], [0.8, 2.4], [2.6, 2.4], [4.75, RIM_LAND / 2 + CLEAR]] as [number, number][],
   magR: 3.25,
   magDepth: 2.4,
   magOff: 13,

@@ -15,6 +15,8 @@ interface LengthFieldProps {
   step?: number;
   min?: number;
   disabled?: boolean;
+  /** fires while the box has focus or the pointer, so a diagram can light up its dimension */
+  onActive?: (on: boolean) => void;
   className?: string;
   inputClassName?: string;
   title?: string;
@@ -24,7 +26,7 @@ interface LengthFieldProps {
 /** A number box that shows a mm value in the current display unit. Keeps its own
  *  text while focused so typing "1." or clearing the box isn't fought by re-renders. */
 export function LengthField({
-  label, value, units, onCommit, live, plain, step, min, disabled, className, inputClassName, title, placeholder,
+  label, value, units, onCommit, live, plain, step, min, disabled, onActive, className, inputClassName, title, placeholder,
 }: LengthFieldProps) {
   const id = useId();
   const shown = plain ? value : units.toDisplay(value);
@@ -42,7 +44,11 @@ export function LengthField({
   };
 
   return (
-    <div className={'min-w-0 flex-1 ' + (className ?? '')}>
+    <div
+      className={'min-w-0 flex-1 ' + (className ?? '')}
+      onPointerEnter={onActive && (() => onActive(true))}
+      onPointerLeave={onActive && (() => onActive(false))}
+    >
       {label !== '' && (
         <label htmlFor={id} className="bb-label">
           {label}
@@ -58,13 +64,17 @@ export function LengthField({
         disabled={disabled}
         title={title}
         placeholder={placeholder}
-        onFocus={() => (focused.current = true)}
+        onFocus={() => {
+          focused.current = true;
+          onActive?.(true);
+        }}
         onChange={(e) => {
           setText(e.target.value);
           if (live) onCommit(parse(e.target.value));
         }}
         onBlur={(e) => {
           focused.current = false;
+          onActive?.(false);
           if (!live) onCommit(parse(e.target.value));
           else setText(String(shown));
         }}

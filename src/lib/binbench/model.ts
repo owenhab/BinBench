@@ -136,7 +136,7 @@ export function defaultProject(): Project {
     ringW: 2.5,
     stackGap: 1.0,
     paperGrid: 10,
-    gridfinity: false,
+    gridfinity: true,
     gfMagnets: false,
     gfPlateMagnets: false,
     customBp: null,
