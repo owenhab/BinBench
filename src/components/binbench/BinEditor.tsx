@@ -39,7 +39,9 @@ export default function BinEditor({ project: p, units, draft, editing, level, er
       if (!el || !svg) return;
       const r = svg.getBoundingClientRect();
       const s = layout.scale;
-      const x = ORIGIN_X + draft.x * s, y = ORIGIN_Y + draft.y * s, w = draft.w * s;
+      const x = ORIGIN_X + draft.x * s, w = draft.w * s;
+      // the canvas draws y upward, so the bin's top edge on screen is y + d
+      const y = ORIGIN_Y + (p.drawer.d - draft.y - draft.d) * s;
       const tw = el.offsetWidth || 270, th = el.offsetHeight || 240;
       const M = 8, vw = window.innerWidth, vh = window.innerHeight;
       let left = r.left + x + w + 12;

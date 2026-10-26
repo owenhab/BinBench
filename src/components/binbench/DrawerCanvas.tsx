@@ -89,12 +89,19 @@ export default function DrawerCanvas(props: Props) {
   });
 
   const W = p.drawer.w * scale, D = p.drawer.d * scale;
+  const dd = p.drawer.d;
   const X = (mm: number) => ORIGIN_X + mm * scale;
-  const Y = (mm: number) => ORIGIN_Y + mm * scale;
+  // y runs UP the page, as it does on a printer's bed and in the 3D preview. Drawing
+  // it downward would make this the only view of the three that reads the other way
+  // round, and a faithful view from above can't have x to the right and y downward at
+  // the same time. Only the drawing flips — a bin's y is what it always was.
+  const Y = (mm: number) => ORIGIN_Y + (dd - mm) * scale;
+  /** the top edge of a rect that runs from `y` to `y + h` */
+  const YT = (y: number, h: number) => Y(y + h);
 
   const mmFromClient = (cx: number, cy: number) => {
     const r = svgRef.current!.getBoundingClientRect();
-    return { x: (cx - r.left - ORIGIN_X) / scale, y: (cy - r.top - ORIGIN_Y) / scale };
+    return { x: (cx - r.left - ORIGIN_X) / scale, y: dd - (cy - r.top - ORIGIN_Y) / scale };
   };
 
   const begin = (e: RPointerEvent, it: Interaction) => {
@@ -220,7 +227,7 @@ export default function DrawerCanvas(props: Props) {
         />
         <GridLines w={p.drawer.w} d={p.drawer.d} unit={p.unit} scale={scale} />
         <rect
-          x={X(bnd.minX)} y={Y(bnd.minY)}
+          x={X(bnd.minX)} y={Y(bnd.maxY)}
           width={(bnd.maxX - bnd.minX) * scale} height={(bnd.maxY - bnd.minY) * scale}
           fill="none" stroke="var(--bb-rule)" strokeWidth={1} strokeDasharray="3,3" opacity={0.6} pointerEvents="none"
         />
@@ -229,23 +236,23 @@ export default function DrawerCanvas(props: Props) {
         {lv > 1 &&
           binsAtLevel(p, lv - 1).map((b) => (
             <g key={'ghost' + b.id} pointerEvents="none">
-              <rect x={X(b.x)} y={Y(b.y)} width={b.w * scale} height={b.d * scale} fill={b.color} opacity={0.16}
+              <rect x={X(b.x)} y={YT(b.y, b.d)} width={b.w * scale} height={b.d * scale} fill={b.color} opacity={0.16}
                 stroke={b.color} strokeWidth={1.5} strokeDasharray="5,4" rx={3} />
-              <text x={X(b.x) + 6} y={Y(b.y) + b.d * scale - 7} fontSize={9} fill="var(--bb-ink)" opacity={0.5}>
+              <text x={X(b.x) + 6} y={YT(b.y, b.d) + b.d * scale - 7} fontSize={9} fill="var(--bb-ink)" opacity={0.5}>
                 on {binName(b)}
               </text>
             </g>
           ))}
 
         {p.blocked.map((bl) => (
-          <ObstructionRect key={'bl' + bl.id} p={p} bl={bl} scale={scale} reaches={obstructionH(p, bl) > lvBaseZ + 0.01}
+          <ObstructionRect key={'bl' + bl.id} p={p} bl={bl} scale={scale} dd={dd} reaches={obstructionH(p, bl) > lvBaseZ + 0.01}
             units={units} onDelete={() => props.onDeleteObstruction(bl.id)} />
         ))}
 
         {binsAtLevel(p, lv).map((bin) => {
           if (bin.id === hiddenId) return null;
           const pos = quickPos && quickPos.id === bin.id ? quickPos : bin;
-          const x = X(pos.x), y = Y(pos.y), w = bin.w * scale, d = bin.d * scale;
+          const x = X(pos.x), y = YT(pos.y, bin.d), w = bin.w * scale, d = bin.d * scale;
           const fit = binFit(p, bin);
           const kids = childrenOf(p, bin.id).length;
           return (
@@ -262,12 +269,14 @@ export default function DrawerCanvas(props: Props) {
                 <title>{binName(bin)} — click to edit, drag to move</title>
               </rect>
               {bin.dividersX.map((dv, i) => (
-                <line key={'x' + i} x1={x + dv.p * scale} y1={y + dv.a * scale} x2={x + dv.p * scale} y2={y + dv.b * scale}
+                <line key={'x' + i} x1={x + dv.p * scale} y1={y + (bin.d - dv.a) * scale} x2={x + dv.p * scale}
+                  y2={y + (bin.d - dv.b) * scale}
                   stroke="rgba(0,0,0,0.45)" strokeWidth={1.5} strokeDasharray={isPartial(dv, bin.heightMM) ? '4,3' : undefined}
                   pointerEvents="none" />
               ))}
               {bin.dividersY.map((dv, i) => (
-                <line key={'y' + i} x1={x + dv.a * scale} y1={y + dv.p * scale} x2={x + dv.b * scale} y2={y + dv.p * scale}
+                <line key={'y' + i} x1={x + dv.a * scale} y1={y + (bin.d - dv.p) * scale} x2={x + dv.b * scale}
+                  y2={y + (bin.d - dv.p) * scale}
                   stroke="rgba(0,0,0,0.45)" strokeWidth={1.5} strokeDasharray={isPartial(dv, bin.heightMM) ? '4,3' : undefined}
                   pointerEvents="none" />
               ))}
@@ -286,7 +295,7 @@ export default function DrawerCanvas(props: Props) {
         {/* draft overlay */}
         <g>
           {blockDraft && (
-            <rect x={X(blockDraft.x)} y={Y(blockDraft.y)} width={blockDraft.w * scale} height={blockDraft.d * scale}
+            <rect x={X(blockDraft.x)} y={YT(blockDraft.y, blockDraft.d)} width={blockDraft.w * scale} height={blockDraft.d * scale}
               fill="var(--bb-warn)" fillOpacity={0.3} stroke="var(--bb-warn)" strokeWidth={2} strokeDasharray="4,3" />
           )}
           {guides.x.map((gx, i) => (
@@ -298,7 +307,7 @@ export default function DrawerCanvas(props: Props) {
               stroke="var(--bb-ok)" strokeWidth={1} strokeDasharray="4,3" pointerEvents="none" />
           ))}
           {draft && (
-            <DraftShape draft={draft} editing={editing} scale={scale} editable={editable} handle={handle} snapHint={snapHint} />
+            <DraftShape draft={draft} editing={editing} scale={scale} dd={dd} editable={editable} handle={handle} snapHint={snapHint} />
           )}
         </g>
       </svg>
@@ -320,7 +329,7 @@ const GridLines = memo(function GridLines({ w, d, unit, scale }: { w: number; d:
     );
   }
   for (let y = 0; y <= d + 0.01; y += unit) {
-    const py = ORIGIN_Y + y * scale;
+    const py = ORIGIN_Y + (d - y) * scale;
     els.push(
       <g key={'gy' + y}>
         <line x1={ORIGIN_X} y1={py} x2={ORIGIN_X + W} y2={py} stroke="var(--bb-paper-line)" strokeWidth={0.75} opacity={0.6} />
@@ -333,13 +342,13 @@ const GridLines = memo(function GridLines({ w, d, unit, scale }: { w: number; d:
 });
 
 function ObstructionRect({
-  p, bl, scale, reaches, units, onDelete,
-}: { p: Project; bl: Obstruction; scale: number; reaches: boolean; units: Units; onDelete: () => void }) {
+  p, bl, scale, dd, reaches, units, onDelete,
+}: { p: Project; bl: Obstruction; scale: number; dd: number; reaches: boolean; units: Units; onDelete: () => void }) {
   // an obstruction the current level clears sits "under" it — draw it faint so it
   // reads as something you're passing over rather than something in your way
   return (
     <rect
-      x={ORIGIN_X + bl.x * scale} y={ORIGIN_Y + bl.y * scale} width={bl.w * scale} height={bl.d * scale}
+      x={ORIGIN_X + bl.x * scale} y={ORIGIN_Y + (dd - bl.y - bl.d) * scale} width={bl.w * scale} height={bl.d * scale}
       fill={reaches ? 'url(#bbHatch)' : 'none'} stroke="var(--bb-warn)" strokeWidth={1}
       strokeDasharray={reaches ? undefined : '3,3'} opacity={reaches ? 0.75 : 0.35}
       style={{ cursor: 'pointer' }}
@@ -357,16 +366,20 @@ function ObstructionRect({
 }
 
 function DraftShape({
-  draft, editing, scale, editable, handle, snapHint,
+  draft, editing, scale, dd, editable, handle, snapHint,
 }: {
   draft: Draft;
   editing: Editing | null;
   scale: number;
+  dd: number;
   editable: boolean;
   handle: (type: DragType, index?: number) => (e: RPointerEvent) => void;
   snapHint: SnapHint | null;
 }) {
-  const x = ORIGIN_X + draft.x * scale, y = ORIGIN_Y + draft.y * scale, w = draft.w * scale, d = draft.d * scale;
+  const x = ORIGIN_X + draft.x * scale, y = ORIGIN_Y + (dd - draft.y - draft.d) * scale;
+  const w = draft.w * scale, d = draft.d * scale;
+  /** a bin-local y, measured down from the rect's top edge now that y runs up */
+  const ly = (mm: number) => y + (draft.d - mm) * scale;
   const hs = 10;
   return (
     <>
@@ -377,7 +390,7 @@ function DraftShape({
       {editable && (
         <>
           {draft.dividersX.map((dv, i) => {
-            const lx = x + dv.p * scale, ya = y + dv.a * scale, yb = y + dv.b * scale;
+            const lx = x + dv.p * scale, ya = ly(dv.a), yb = ly(dv.b);
             return (
               <g key={'dx' + i}>
                 <line x1={lx} y1={ya} x2={lx} y2={yb} stroke="var(--bb-ink)" strokeWidth={2}
@@ -392,29 +405,29 @@ function DraftShape({
             );
           })}
           {draft.dividersY.map((dv, i) => {
-            const ly = y + dv.p * scale, xa = x + dv.a * scale, xb = x + dv.b * scale;
+            const lp = ly(dv.p), xa = x + dv.a * scale, xb = x + dv.b * scale;
             return (
               <g key={'dy' + i}>
-                <line x1={xa} y1={ly} x2={xb} y2={ly} stroke="var(--bb-ink)" strokeWidth={2}
+                <line x1={xa} y1={lp} x2={xb} y2={lp} stroke="var(--bb-ink)" strokeWidth={2}
                   strokeDasharray={isPartial(dv, draft.heightMM) ? '5,3' : undefined} pointerEvents="none" />
-                <rect x={(xa + xb) / 2 - 9} y={ly - 5} width={18} height={10} rx={2} fill="var(--bb-rule)"
+                <rect x={(xa + xb) / 2 - 9} y={lp - 5} width={18} height={10} rx={2} fill="var(--bb-rule)"
                   stroke="var(--bb-ink)" strokeWidth={1} style={{ cursor: 'ns-resize' }} onPointerDown={handle('divy', i)} />
-                <circle cx={xa} cy={ly} r={4.5} fill="var(--bb-ink)" stroke="var(--bb-rule)" strokeWidth={1.5}
+                <circle cx={xa} cy={lp} r={4.5} fill="var(--bb-ink)" stroke="var(--bb-rule)" strokeWidth={1.5}
                   style={{ cursor: 'ew-resize' }} onPointerDown={handle('divya', i)} />
-                <circle cx={xb} cy={ly} r={4.5} fill="var(--bb-ink)" stroke="var(--bb-rule)" strokeWidth={1.5}
+                <circle cx={xb} cy={lp} r={4.5} fill="var(--bb-ink)" stroke="var(--bb-rule)" strokeWidth={1.5}
                   style={{ cursor: 'ew-resize' }} onPointerDown={handle('divyb', i)} />
               </g>
             );
           })}
-          {([['nw', x, y], ['ne', x + w, y], ['sw', x, y + d], ['se', x + w, y + d]] as const).map(([type, hx, hy]) => (
-            <rect key={type} x={hx - hs / 2} y={hy - hs / 2} width={hs} height={hs} fill="var(--bb-rule)" stroke="var(--bb-ink)"
-              strokeWidth={1} style={{ cursor: type === 'nw' || type === 'se' ? 'nwse-resize' : 'nesw-resize' }}
-              onPointerDown={handle(type)} />
-          ))}
+          {([['sw', x, y, 'nwse'], ['se', x + w, y, 'nesw'], ['nw', x, y + d, 'nesw'], ['ne', x + w, y + d, 'nwse']] as const)
+            .map(([type, hx, hy, cur]) => (
+              <rect key={type} x={hx - hs / 2} y={hy - hs / 2} width={hs} height={hs} fill="var(--bb-rule)"
+                stroke="var(--bb-ink)" strokeWidth={1} style={{ cursor: cur + '-resize' }} onPointerDown={handle(type)} />
+            ))}
           {snapHint && (
             <g pointerEvents="none">
-              <circle cx={x + snapHint.x * scale} cy={y + snapHint.y * scale} r={8} fill="none" stroke="var(--bb-ok)" strokeWidth={2} />
-              <circle cx={x + snapHint.x * scale} cy={y + snapHint.y * scale} r={2.5} fill="var(--bb-ok)" />
+              <circle cx={x + snapHint.x * scale} cy={ly(snapHint.y)} r={8} fill="none" stroke="var(--bb-ok)" strokeWidth={2} />
+              <circle cx={x + snapHint.x * scale} cy={ly(snapHint.y)} r={2.5} fill="var(--bb-ok)" />
             </g>
           )}
         </>
