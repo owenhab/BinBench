@@ -40,7 +40,7 @@ export function PlatePacking({ project: p, onStatus }: { project: Project; onSta
               <svg width={bed.x * px} height={bed.y * px} className="block">
                 <rect width={bed.x * px} height={bed.y * px} fill="var(--bb-plate-bg)" stroke="var(--bb-line)" />
                 {plate.map((pl, i) => (
-                  <rect key={i} x={pl.x * px} y={pl.y * px} width={pl.w * px} height={pl.d * px} fill={pl.bin.color}
+                  <rect key={i} x={pl.x * px} y={(bed.y - pl.y - pl.d) * px} width={pl.w * px} height={pl.d * px} fill={pl.bin.color}
                     opacity={pl.oversize ? 0.4 : 0.85} stroke={pl.oversize ? 'var(--bb-warn)' : '#000'} strokeWidth={pl.oversize ? 2 : 0.5}>
                     <title>{binName(pl.bin)}{pl.oversize ? ' — too big for the bed' : ''}</title>
                   </rect>
@@ -146,9 +146,11 @@ export function BaseplateSections({
 function TileSvg({ p, tile, plate, px }: { p: Project; tile: Box2; plate: ReturnType<typeof computeBaseplateTiles>['plate']; px: number }) {
   const tw = tile.x1 - tile.x0, td = tile.y1 - tile.y0;
   const cl = (r: Box2) => ({ x0: Math.max(r.x0, tile.x0), x1: Math.min(r.x1, tile.x1), y0: Math.max(r.y0, tile.y0), y1: Math.min(r.y1, tile.y1) });
+  // y runs up here too, matching the drawer plan, the 3D and the printer's bed — so a
+  // section's thumbnail is the same way up as the section itself
   const R = (r: Box2, props: React.SVGProps<SVGRectElement>, key: string) =>
     r.x1 <= r.x0 || r.y1 <= r.y0 ? null : (
-      <rect key={key} x={(r.x0 - tile.x0) * px} y={(r.y0 - tile.y0) * px} width={(r.x1 - r.x0) * px} height={(r.y1 - r.y0) * px} {...props} />
+      <rect key={key} x={(r.x0 - tile.x0) * px} y={(tile.y1 - r.y1) * px} width={(r.x1 - r.x0) * px} height={(r.y1 - r.y0) * px} {...props} />
     );
   return (
     <svg width={tw * px} height={td * px} className="block">
