@@ -20,9 +20,14 @@ function meshFromTris(tris: Tri[], material: THREE.Material, offX: number, offY:
   let i = 0;
   const v = new THREE.Vector3();
   tris.forEach((t) => {
-    // swapping two axes flips handedness, so the winding must be reversed too
-    [t[0], t[2], t[1]].forEach((p) => {
-      const X = p[0] + offX, Y = p[2] + offZ, Z = p[1] + offY;
+    // App space is X across, Y into the drawer, Z up; three.js is Y-up. Mapping
+    // (x, y, z) -> (x, z, y) looks like it does the job, but it is a reflection, not a
+    // rotation — the preview then shows the mirror image of the part that gets
+    // exported, and reversing the winding only hides it by making the lighting look
+    // right. Turning about X instead, (x, y, z) -> (x, z, -y), is a true rotation, so
+    // what you orbit here is the thing the printer makes.
+    t.forEach((p) => {
+      const X = p[0] + offX, Y = p[2] + offZ, Z = -(p[1] + offY);
       pos[i++] = X; pos[i++] = Y; pos[i++] = Z;
       bbox.expandByPoint(v.set(X, Y, Z));
     });

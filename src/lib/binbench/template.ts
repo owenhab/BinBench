@@ -20,12 +20,17 @@ export function buildTemplateHTML(p: Project, paperSize: PaperSize, showBins: bo
 
   let pages = '';
   let n = 0;
-  for (let r = 0; r < rows; r++) {
+  // Rows come off the press from the top of the plan down, so sheet 1 is the top-left
+  // corner of the assembled template and they tape together in reading order.
+  for (let r = rows - 1; r >= 0; r--) {
     for (let c = 0; c < cols; c++) {
       n++;
       const ox = c * usableW, oy = r * usableH;
       const pw = Math.min(usableW, p.drawer.w - ox);
       const ph = Math.min(usableH, p.drawer.d - oy);
+      // y runs up the drawer, as it does everywhere else, so a sheet draws its own
+      // slice of it upside down relative to the page
+      const SY = (y: number) => oy + ph - y;
       let svg = '';
       for (let x = Math.ceil(ox / fine) * fine; x <= ox + pw + 0.001; x += fine) {
         const major = Math.abs(x % (fine * 5)) < 0.001;
@@ -34,23 +39,23 @@ export function buildTemplateHTML(p: Project, paperSize: PaperSize, showBins: bo
       }
       for (let y = Math.ceil(oy / fine) * fine; y <= oy + ph + 0.001; y += fine) {
         const major = Math.abs(y % (fine * 5)) < 0.001;
-        svg += `<line x1="0" y1="${y - oy}" x2="${pw}" y2="${y - oy}" stroke="#999" stroke-width="${major ? 0.35 : 0.15}"/>`;
-        if (major) svg += `<text x="0.6" y="${y - oy - 0.8}" font-size="2.6" fill="#c0392b" font-family="monospace">${Math.round(y)}</text>`;
+        svg += `<line x1="0" y1="${SY(y)}" x2="${pw}" y2="${SY(y)}" stroke="#999" stroke-width="${major ? 0.35 : 0.15}"/>`;
+        if (major) svg += `<text x="0.6" y="${SY(y) - 0.8}" font-size="2.6" fill="#c0392b" font-family="monospace">${Math.round(y)}</text>`;
       }
       for (let x = Math.ceil(ox / p.unit) * p.unit; x <= ox + pw + 0.001; x += p.unit)
         svg += `<line x1="${x - ox}" y1="0" x2="${x - ox}" y2="${ph}" stroke="#2c6fb5" stroke-width="0.5"/>`;
       for (let y = Math.ceil(oy / p.unit) * p.unit; y <= oy + ph + 0.001; y += p.unit)
-        svg += `<line x1="0" y1="${y - oy}" x2="${pw}" y2="${y - oy}" stroke="#2c6fb5" stroke-width="0.5"/>`;
+        svg += `<line x1="0" y1="${SY(y)}" x2="${pw}" y2="${SY(y)}" stroke="#2c6fb5" stroke-width="0.5"/>`;
       if (showBins) {
         binsAtLevel(p, 1).forEach((b) => {
-          svg += `<rect x="${b.x - ox}" y="${b.y - oy}" width="${b.w}" height="${b.d}" fill="none" stroke="#111" stroke-width="0.8"/>`;
+          svg += `<rect x="${b.x - ox}" y="${SY(b.y + b.d)}" width="${b.w}" height="${b.d}" fill="none" stroke="#111" stroke-width="0.8"/>`;
           (b.dividersX || []).forEach((dv) => {
-            svg += `<line x1="${b.x + dv.p - ox}" y1="${b.y + dv.a - oy}" x2="${b.x + dv.p - ox}" y2="${b.y + dv.b - oy}" stroke="#111" stroke-width="0.5" stroke-dasharray="2,1.5"/>`;
+            svg += `<line x1="${b.x + dv.p - ox}" y1="${SY(b.y + dv.a)}" x2="${b.x + dv.p - ox}" y2="${SY(b.y + dv.b)}" stroke="#111" stroke-width="0.5" stroke-dasharray="2,1.5"/>`;
           });
           (b.dividersY || []).forEach((dv) => {
-            svg += `<line x1="${b.x + dv.a - ox}" y1="${b.y + dv.p - oy}" x2="${b.x + dv.b - ox}" y2="${b.y + dv.p - oy}" stroke="#111" stroke-width="0.5" stroke-dasharray="2,1.5"/>`;
+            svg += `<line x1="${b.x + dv.a - ox}" y1="${SY(b.y + dv.p)}" x2="${b.x + dv.b - ox}" y2="${SY(b.y + dv.p)}" stroke="#111" stroke-width="0.5" stroke-dasharray="2,1.5"/>`;
           });
-          svg += `<text x="${b.x - ox + 2}" y="${b.y - oy + 5}" font-size="3.4" fill="#111" font-family="sans-serif">${esc(b.label || 'Bin ' + b.id)}</text>`;
+          svg += `<text x="${b.x - ox + 2}" y="${SY(b.y + b.d) + 5}" font-size="3.4" fill="#111" font-family="sans-serif">${esc(b.label || 'Bin ' + b.id)}</text>`;
         });
       }
       svg += `<rect x="0" y="0" width="${pw}" height="${ph}" fill="none" stroke="#000" stroke-width="0.4" stroke-dasharray="4,2"/>`;
