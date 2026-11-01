@@ -1,4 +1,7 @@
-import { type Bin, type Obstruction, type Project, binById, binFit, binInterior, binLevel, binName, isPartial, obstructionH } from '@/lib/binbench/model';
+import {
+  type Bin, type Obstruction, type Project,
+  binById, binFit, binInterior, binIssueText, binIssues, binLevel, binName, binSettled, isPartial, obstructionH,
+} from '@/lib/binbench/model';
 import { isLooseBin } from '@/lib/binbench/geometry';
 import { LengthField, Section } from './fields';
 import type { Units } from './units';
@@ -15,8 +18,13 @@ interface BinListProps {
 }
 
 export function BinList({ project: p, units, onEdit, onCopy, onSTL, on3MF, onRemove, onClear }: BinListProps) {
+  const unsettled = p.bins.filter((b) => !binSettled(binIssues(p, b))).length;
   return (
-    <Section title="Bins" tour="bins">
+    <Section
+      title="Bins"
+      tour="bins"
+      badge={unsettled ? <span style={{ color: 'var(--bb-warn)' }}>{unsettled + ' badly placed'}</span> : undefined}
+    >
       {p.bins.length === 0 ? (
         <div className="bb-empty">No bins yet — drag on the grid to draft one.</div>
       ) : (
@@ -28,6 +36,8 @@ export function BinList({ project: p, units, onEdit, onCopy, onSTL, on3MF, onRem
             // a bin straddling a cell boundary can miss every socket — legal geometry, but
             // nothing holds it in place, so say so rather than let it print unlocated
             const loose = isLooseBin(p, bin, lvl);
+            const issues = binIssues(p, bin);
+            const sits = binSettled(issues);
             const divs = [...bin.dividersX, ...bin.dividersY];
             const nPart = divs.filter((dv) => isPartial(dv, bin.heightMM)).length;
             const ib = binInterior(p, bin);
@@ -35,19 +45,25 @@ export function BinList({ project: p, units, onEdit, onCopy, onSTL, on3MF, onRem
               'Outside ' + units.fmt(bin.w) + '×' + units.fmt(bin.d) + '×' + units.fmt(bin.heightMM) +
               '\nUsable inside ' + units.fmt(ib.w) + '×' + units.fmt(ib.d) + '×' + units.fmt(ib.h) + ' (walls, plus the stacking collar on top)' +
               (lvl > 1 ? '\nStacked on ' + (parent ? binName(parent) : '?') : '') +
-              (loose ? '\nThis bin straddles the grid without covering enough of any one cell to grow a foot, so nothing locates it. Nudge it onto a cell or make it bigger.' : '');
+              (loose ? '\nThis bin straddles the grid without covering enough of any one cell to grow a foot, so nothing locates it. Nudge it onto a cell or make it bigger.' : '') +
+              (sits ? '' : '\n⚠ ' + binIssueText(p, issues, units.fmt));
             return (
               <li key={bin.id} title={title} className="flex flex-wrap items-center gap-2 border-b py-2 last:border-b-0" style={{ borderColor: 'var(--bb-line)' }}>
                 <span className="size-3 shrink-0 rounded-sm" style={{ background: bin.color }} />
                 <div className="min-w-[110px] flex-1">
                   <div className="text-[12.5px] font-semibold">
-                    {binName(bin)} {!fit.ok && <span className="font-bold" style={{ color: 'var(--bb-warn)' }}>⚠</span>}
+                    {binName(bin)} {(!fit.ok || !sits) && <span className="font-bold" style={{ color: 'var(--bb-warn)' }}>⚠</span>}
                   </div>
                   <div className="font-mono text-[11px]" style={{ color: 'var(--bb-dim)' }}>
                     {units.fmt(bin.w)}×{units.fmt(bin.d)}×{units.fmt(bin.heightMM)}
                     {divs.length ? ' · ' + divs.length + ' div' + (nPart ? ', ' + nPart + ' low' : '') : ''}
                     {lvl > 1 ? ' · L' + lvl + ' on ' + (parent ? binName(parent) : '?') : ''}
                     {loose && <span className="font-bold" style={{ color: 'var(--bb-warn)' }}> · nothing to locate on</span>}
+                    {!sits && (
+                      <span className="font-bold" style={{ color: 'var(--bb-warn)' }}>
+                        {' · ' + (issues.obstructed ? 'on an obstruction' : issues.overlaps.length ? 'overlapping' : 'past the wall')}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1">

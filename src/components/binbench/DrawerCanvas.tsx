@@ -5,8 +5,12 @@ import {
   type Project,
   type Rect,
   PALETTE,
+  STRAY_MM,
   binFit,
+  binIssueText,
+  binIssues,
   binName,
+  binSettled,
   binsAtLevel,
   childrenOf,
   isPartial,
@@ -32,6 +36,9 @@ import type { Units } from './units';
 
 export const ORIGIN_X = 30;
 export const ORIGIN_Y = 30;
+/** An apron of drawer-space around the paper, so a bin shoved past the wall is still
+ *  somewhere you can see it and drag it back. Matches how far model.ts lets one go. */
+const APRON = STRAY_MM;
 
 type Interaction =
   | { kind: 'create'; start: { x: number; y: number }; base: Draft; last: Draft }
@@ -79,9 +86,9 @@ export default function DrawerCanvas(props: Props) {
     return () => ro.disconnect();
   }, []);
 
-  // fit the drawer into the column; tall drawers are limited by height instead
+  // fit the drawer and its apron into the column; tall drawers are limited by height
   const maxPxW = Math.max(220, Math.min(wrapW - 32 - ORIGIN_X - 20, 900));
-  let scale = Math.min(maxPxW / p.drawer.w, 560 / p.drawer.d, 2.4);
+  let scale = Math.min(maxPxW / (p.drawer.w + 2 * APRON), 560 / (p.drawer.d + 2 * APRON), 2.4);
   if (!(scale > 0) || !isFinite(scale)) scale = 1;
 
   useLayoutEffect(() => {
@@ -90,18 +97,18 @@ export default function DrawerCanvas(props: Props) {
 
   const W = p.drawer.w * scale, D = p.drawer.d * scale;
   const dd = p.drawer.d;
-  const X = (mm: number) => ORIGIN_X + mm * scale;
+  const X = (mm: number) => ORIGIN_X + (mm + APRON) * scale;
   // y runs UP the page, as it does on a printer's bed and in the 3D preview. Drawing
   // it downward would make this the only view of the three that reads the other way
   // round, and a faithful view from above can't have x to the right and y downward at
   // the same time. Only the drawing flips — a bin's y is what it always was.
-  const Y = (mm: number) => ORIGIN_Y + (dd - mm) * scale;
+  const Y = (mm: number) => ORIGIN_Y + (dd + APRON - mm) * scale;
   /** the top edge of a rect that runs from `y` to `y + h` */
   const YT = (y: number, h: number) => Y(y + h);
 
   const mmFromClient = (cx: number, cy: number) => {
     const r = svgRef.current!.getBoundingClientRect();
-    return { x: (cx - r.left - ORIGIN_X) / scale, y: dd - (cy - r.top - ORIGIN_Y) / scale };
+    return { x: (cx - r.left - ORIGIN_X) / scale - APRON, y: dd + APRON - (cy - r.top - ORIGIN_Y) / scale };
   };
 
   const begin = (e: RPointerEvent, it: Interaction) => {
@@ -205,8 +212,8 @@ export default function DrawerCanvas(props: Props) {
     >
       <svg
         ref={svgRef}
-        width={W + ORIGIN_X + 20}
-        height={D + ORIGIN_Y + 20}
+        width={W + 2 * APRON * scale + ORIGIN_X + 20}
+        height={D + 2 * APRON * scale + ORIGIN_Y + 20}
         className="block touch-none select-none"
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -220,7 +227,7 @@ export default function DrawerCanvas(props: Props) {
           </pattern>
         </defs>
         <rect
-          x={ORIGIN_X} y={ORIGIN_Y} width={W} height={D}
+          x={X(0)} y={Y(dd)} width={W} height={D}
           fill="var(--bb-paper)" stroke="var(--bb-paper-line)" strokeWidth={1}
           style={{ cursor: 'crosshair' }}
           onPointerDown={onPaperDown}
@@ -254,11 +261,15 @@ export default function DrawerCanvas(props: Props) {
           const pos = quickPos && quickPos.id === bin.id ? quickPos : bin;
           const x = X(pos.x), y = YT(pos.y, bin.d), w = bin.w * scale, d = bin.d * scale;
           const fit = binFit(p, bin);
+          // where it is sitting, as opposed to whether it can be printed
+          const issues = binIssues(p, { ...bin, x: pos.x, y: pos.y });
+          const sits = binSettled(issues);
           const kids = childrenOf(p, bin.id).length;
           return (
             <g key={'bin' + bin.id}>
               <rect x={x} y={y} width={w} height={d} fill={bin.color} opacity={0.85}
-                stroke={fit.ok ? '#000' : 'var(--bb-warn)'} strokeWidth={fit.ok ? 0.5 : 2} rx={3}
+                stroke={fit.ok && sits ? '#000' : 'var(--bb-warn)'} strokeWidth={fit.ok && sits ? 0.5 : 2}
+                strokeDasharray={sits ? undefined : '6,3'} rx={3}
                 style={{ cursor: mode === 'design' ? 'move' : 'default' }}
                 onPointerDown={(e) => {
                   if (mode !== 'design') return;
@@ -266,8 +277,14 @@ export default function DrawerCanvas(props: Props) {
                   begin(e, { kind: 'quick', bin, start: mmFromClient(e.clientX, e.clientY), moved: false, pos: null });
                 }}
               >
-                <title>{binName(bin)} — click to edit, drag to move</title>
+                <title>
+                  {binName(bin) + ' — click to edit, drag to move' +
+                    (sits ? '' : ' · ' + binIssueText(p, issues, units.fmt))}
+                </title>
               </rect>
+              {!sits && (
+                <rect x={x} y={y} width={w} height={d} fill="url(#bbHatch)" opacity={0.45} rx={3} pointerEvents="none" />
+              )}
               {bin.dividersX.map((dv, i) => (
                 <line key={'x' + i} x1={x + dv.p * scale} y1={y + (bin.d - dv.a) * scale} x2={x + dv.p * scale}
                   y2={y + (bin.d - dv.b) * scale}
@@ -299,11 +316,11 @@ export default function DrawerCanvas(props: Props) {
               fill="var(--bb-warn)" fillOpacity={0.3} stroke="var(--bb-warn)" strokeWidth={2} strokeDasharray="4,3" />
           )}
           {guides.x.map((gx, i) => (
-            <line key={'gx' + i} x1={X(gx)} y1={ORIGIN_Y} x2={X(gx)} y2={ORIGIN_Y + D}
+            <line key={'gx' + i} x1={X(gx)} y1={Y(dd)} x2={X(gx)} y2={Y(0)}
               stroke="var(--bb-ok)" strokeWidth={1} strokeDasharray="4,3" pointerEvents="none" />
           ))}
           {guides.y.map((gy, i) => (
-            <line key={'gy' + i} x1={ORIGIN_X} y1={Y(gy)} x2={ORIGIN_X + W} y2={Y(gy)}
+            <line key={'gy' + i} x1={X(0)} y1={Y(gy)} x2={X(p.drawer.w)} y2={Y(gy)}
               stroke="var(--bb-ok)" strokeWidth={1} strokeDasharray="4,3" pointerEvents="none" />
           ))}
           {draft && (
@@ -317,22 +334,23 @@ export default function DrawerCanvas(props: Props) {
 
 const GridLines = memo(function GridLines({ w, d, unit, scale }: { w: number; d: number; unit: number; scale: number }) {
   const els = [];
-  const W = w * scale, D = d * scale;
+  const ax = (mm: number) => ORIGIN_X + (mm + APRON) * scale;
+  const ay = (mm: number) => ORIGIN_Y + (d + APRON - mm) * scale;
   for (let x = 0; x <= w + 0.01; x += unit) {
-    const px = ORIGIN_X + x * scale;
+    const px = ax(x);
     els.push(
       <g key={'gx' + x}>
-        <line x1={px} y1={ORIGIN_Y} x2={px} y2={ORIGIN_Y + D} stroke="var(--bb-paper-line)" strokeWidth={0.75} opacity={0.6} />
+        <line x1={px} y1={ay(d)} x2={px} y2={ay(0)} stroke="var(--bb-paper-line)" strokeWidth={0.75} opacity={0.6} />
         <line x1={px} y1={ORIGIN_Y - 6} x2={px} y2={ORIGIN_Y} stroke="var(--bb-rule)" strokeWidth={1} />
         <text x={px} y={ORIGIN_Y - 9} fontSize={9} fill="var(--bb-measure)" textAnchor="middle">{Math.round(x)}</text>
       </g>,
     );
   }
   for (let y = 0; y <= d + 0.01; y += unit) {
-    const py = ORIGIN_Y + (d - y) * scale;
+    const py = ay(y);
     els.push(
       <g key={'gy' + y}>
-        <line x1={ORIGIN_X} y1={py} x2={ORIGIN_X + W} y2={py} stroke="var(--bb-paper-line)" strokeWidth={0.75} opacity={0.6} />
+        <line x1={ax(0)} y1={py} x2={ax(w)} y2={py} stroke="var(--bb-paper-line)" strokeWidth={0.75} opacity={0.6} />
         <line x1={ORIGIN_X - 6} y1={py} x2={ORIGIN_X} y2={py} stroke="var(--bb-rule)" strokeWidth={1} />
         <text x={ORIGIN_X - 9} y={py + 3} fontSize={9} fill="var(--bb-measure)" textAnchor="end">{Math.round(y)}</text>
       </g>,
@@ -348,7 +366,8 @@ function ObstructionRect({
   // reads as something you're passing over rather than something in your way
   return (
     <rect
-      x={ORIGIN_X + bl.x * scale} y={ORIGIN_Y + (dd - bl.y - bl.d) * scale} width={bl.w * scale} height={bl.d * scale}
+      x={ORIGIN_X + (bl.x + APRON) * scale} y={ORIGIN_Y + (dd + APRON - bl.y - bl.d) * scale}
+      width={bl.w * scale} height={bl.d * scale}
       fill={reaches ? 'url(#bbHatch)' : 'none'} stroke="var(--bb-warn)" strokeWidth={1}
       strokeDasharray={reaches ? undefined : '3,3'} opacity={reaches ? 0.75 : 0.35}
       style={{ cursor: 'pointer' }}
@@ -376,7 +395,7 @@ function DraftShape({
   handle: (type: DragType, index?: number) => (e: RPointerEvent) => void;
   snapHint: SnapHint | null;
 }) {
-  const x = ORIGIN_X + draft.x * scale, y = ORIGIN_Y + (dd - draft.y - draft.d) * scale;
+  const x = ORIGIN_X + (draft.x + APRON) * scale, y = ORIGIN_Y + (dd + APRON - draft.y - draft.d) * scale;
   const w = draft.w * scale, d = draft.d * scale;
   /** a bin-local y, measured down from the rect's top edge now that y runs up */
   const ly = (mm: number) => y + (draft.d - mm) * scale;

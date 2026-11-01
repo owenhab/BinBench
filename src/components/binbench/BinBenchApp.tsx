@@ -4,14 +4,13 @@ import {
   type Project,
   type Rect,
   PALETTE,
+  STRAY_MM,
   binById,
   binName,
   binsAtLevel,
-  blockedAtLevel,
   canStackOn,
   childrenOf,
   cloneDividers,
-  collidesAny,
   defaultProject,
   findFreeSlot,
   maxLevel,
@@ -21,7 +20,10 @@ import {
   usableBounds,
   binLevel,
 } from '@/lib/binbench/model';
-import { gfOn, gfSnapEdges, gfSnapHeight, gfSnaps, gridfinityValues, setWholeCells } from '@/lib/binbench/gridfinity';
+import { gfOn, gfSnapEdges, gfSnapHeight, gfSnapRect, gfSnaps, gridfinityValues, setWholeCells } from '@/lib/binbench/gridfinity';
+import {
+  type ContainerPreset, CONTAINERS_KEY, containerSize, parseContainers, serializeContainers,
+} from '@/lib/binbench/containers';
 import { downloadBin3MF, downloadBinSTL, triggerDownload } from '@/lib/binbench/exporters';
 import { loadProjectText, projectFileName, serializeProject } from '@/lib/binbench/project-io';
 import { type Draft, type Editing, clampDividers, cloneDraft, draftLevel, setDraftSize } from './draft';
@@ -31,6 +33,7 @@ import BinEditor from './BinEditor';
 import Preview3D from './Preview3D';
 import SettingsPanels, { AdvancedPanels } from './SettingsPanels';
 import { BinList, ObstructionList, ShelfList } from './ListPanels';
+import ContainerLibrary from './ContainerLibrary';
 import { BaseplateSections, PlatePacking } from './PlatePanels';
 import Tour from './Tour';
 
@@ -82,6 +85,8 @@ export default function BinBenchApp() {
   const [editorError, setEditorError] = useState('');
   const clipboard = useRef<Clip | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+  // the user's own saved sizes — kept in the browser, not in the project file
+  const [myContainers, setMyContainers] = useState<ContainerPreset[]>(() => parseContainers(safeLocalGet(CONTAINERS_KEY)));
   const [layout, setLayout] = useState<{ svg: SVGSVGElement | null; scale: number }>({ svg: null, scale: 1 });
   const openInput = useRef<HTMLInputElement>(null);
   const canWriteFiles = typeof window !== 'undefined' && typeof fsWin().showSaveFilePicker === 'function';
@@ -163,19 +168,12 @@ export default function BinBenchApp() {
     let w = Math.max(1, d.w), dd = Math.max(1, d.d);
     const h = gfSnaps(p) ? Math.max(1, d.heightMM) : Math.max(1, Math.round(d.heightMM));
     // clamp the footprint into the usable drawer so it can never "extend outside"
-    const x = Math.min(Math.max(d.x, bnd.minX), bnd.maxX - 1);
-    const y = Math.min(Math.max(d.y, bnd.minY), bnd.maxY - 1);
-    w = Math.min(w, bnd.maxX - x);
-    dd = Math.min(dd, bnd.maxY - y);
+    const x = Math.min(Math.max(d.x, bnd.minX - STRAY_MM), bnd.maxX - 1 + STRAY_MM);
+    const y = Math.min(Math.max(d.y, bnd.minY - STRAY_MM), bnd.maxY - 1 + STRAY_MM);
     const rect = { x, y, w, d: dd };
-    const excludeId = editing.mode === 'edit' ? editing.id ?? null : null;
     const level = draftLevel(p, editing, activeLevel);
-    if (collidesAny(p, rect, excludeId, level)) {
-      setEditorError(blockedAtLevel(p, rect, level)
-        ? 'That overlaps an obstruction tall enough to reach this level.'
-        : 'Too close to another bin — keep at least ' + units.fmt(p.minGap) + ' between them.');
-      return;
-    }
+    // Overlapping a neighbour or the wall is allowed and flagged afterwards. Stacking
+    // is not: it decides which bin this one belongs to, so it still has to hold.
     // an upper-level bin has to land on a bin below and bridge it wall to wall
     let parentId: number | null = null;
     if (level > 1) {
@@ -208,10 +206,11 @@ export default function BinBenchApp() {
     closeEditor();
   };
 
+  // A bin goes where it is dropped. Landing on a neighbour or over the wall is
+  // flagged on the canvas and in the bin list rather than refused — shuffling a
+  // drawer about means passing through positions that don't work yet.
   const moveBin = (id: number, x: number, y: number) => {
-    const bin = binById(p, id);
-    if (!bin) return;
-    if (collidesAny(p, { x, y, w: bin.w, d: bin.d }, id, binLevel(p, bin))) return; // snap back
+    if (!binById(p, id)) return;
     commitProject({ ...p, bins: p.bins.map((b) => (b.id === id ? { ...b, x, y } : b)) });
   };
 
@@ -229,8 +228,11 @@ export default function BinBenchApp() {
   };
 
   const placeNewBin = (src: Clip & { color?: string }, hintX: number | null, hintY: number | null, label: string) => {
-    const slot = findFreeSlot(p, src.w, src.d, hintX, hintY);
-    if (!slot) return null;
+    // Nothing free is no longer a reason to refuse: park it in the near corner and
+    // let it show up as overlapping, which is easier to sort out than a dead end.
+    const bnd = usableBounds(p);
+    const corner = { x: bnd.minX, y: bnd.minY, w: src.w, d: src.d };
+    const slot = findFreeSlot(p, src.w, src.d, hintX, hintY) ?? (gfSnaps(p) ? gfSnapRect(p, corner) : corner);
     const id = p.binCounter + 1;
     const bin: Bin = {
       id, color: src.color ?? PALETTE[p.bins.length % PALETTE.length], x: slot.x, y: slot.y, w: src.w, d: src.d,
@@ -244,7 +246,6 @@ export default function BinBenchApp() {
     if (!c) { setStatus('Nothing copied yet — use Copy on a bin first.', true); return false; }
     const hint = p.bins.find((b) => b.label === c.label);
     const r = placeNewBin(c, hint ? hint.x : null, hint ? hint.y : null, c.label ? c.label + ' copy' : '');
-    if (!r) { setStatus('No free space to paste this bin — make room or shrink it.', true); return false; }
     commitProject(r.next);
     setActiveLevel(1);
     openEditorForBin(r.bin);
@@ -256,11 +257,23 @@ export default function BinBenchApp() {
     const s = p.shelvedBins.find((b) => b.shelfId === shelfId);
     if (!s) return;
     const r = placeNewBin(s, s.lastX, s.lastY, s.label);
-    if (!r) return setStatus('No free space to add it back — make room or shrink it first.', true);
     commitProject({ ...r.next, shelvedBins: p.shelvedBins.filter((b) => b.shelfId !== shelfId) });
     setActiveLevel(1);
     openEditorForBin(r.bin);
     setStatus('Added "' + binName(r.bin) + '" back to the drawer.');
+  };
+
+  const rememberContainers = (list: ContainerPreset[]) => {
+    setMyContainers(list);
+    safeLocalSet(CONTAINERS_KEY, serializeContainers(list));
+  };
+  const addContainer = (c: ContainerPreset) => {
+    const size = containerSize(p, c);
+    const r = placeNewBin({ ...size, label: c.name, dividersX: [], dividersY: [] }, null, null, c.name);
+    commitProject(r.next);
+    setActiveLevel(1);
+    openEditorForBin(r.bin);
+    setStatus('Added "' + c.name + '" — resize it to suit what you actually have.');
   };
 
   const addObstruction = (r?: Rect) => {
@@ -437,6 +450,8 @@ export default function BinBenchApp() {
           <BinList project={p} units={units} onEdit={(b) => { setActiveLevel(binLevel(p, b)); openEditorForBin(b); }} onCopy={copyBin}
             onSTL={(b) => downloadBinSTL(p, b)} on3MF={(b) => void downloadBin3MF(p, b)} onRemove={removeBin}
             onClear={() => { commitProject({ ...p, bins: [], blocked: [] }); closeEditor(); }} />
+          <ContainerLibrary project={p} units={units} mine={myContainers} onSaveMine={rememberContainers} onAdd={addContainer}
+            current={draft ? { w: draft.w, d: draft.d, heightMM: draft.heightMM, label: draft.label } : null} />
           <ObstructionList project={p} units={units} onAdd={() => addObstruction()}
             onChange={(id, patch) => commitProject(
               { ...p, blocked: p.blocked.map((b) => (b.id === id ? { ...b, ...patch } : b)) },

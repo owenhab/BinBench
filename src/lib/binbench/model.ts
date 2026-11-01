@@ -391,6 +391,47 @@ export function blockedAtLevel(p: Project, rect: Rect, level: number) {
   const baseZ = levelBaseZ(p, level || 1);
   return p.blocked.some((bl) => obstructionH(p, bl) > baseZ + 0.01 && rectsOverlap(grown, bl));
 }
+/** How far a bin may stray past the drawer walls while you shuffle things about. It
+ *  is flagged rather than forbidden — rearranging is easier when a bin can sit half
+ *  out of the way for a moment — but it stays close enough to find again. */
+export const STRAY_MM = 25;
+
+export interface BinIssues {
+  /** ids of the bins on this level it is sitting too close to */
+  overlaps: number[];
+  /** over an obstruction tall enough to reach this level */
+  obstructed: boolean;
+  /** hanging past the drawer's usable area */
+  outside: boolean;
+}
+/** What is wrong with where a bin is sitting, if anything. Nothing here stops a bin
+ *  being put somewhere — it only says so. */
+export function binIssues(p: Project, bin: Bin): BinIssues {
+  const lv = binLevel(p, bin);
+  const g = minGapEff(p);
+  const grown = { x: bin.x - g, y: bin.y - g, w: bin.w + 2 * g, d: bin.d + 2 * g };
+  const bnd = usableBounds(p);
+  const e = 0.05;
+  return {
+    overlaps: p.bins.filter((b) => b.id !== bin.id && binLevel(p, b) === lv && rectsOverlap(grown, b)).map((b) => b.id),
+    obstructed: blockedAtLevel(p, bin, lv),
+    outside: bin.x < bnd.minX - e || bin.y < bnd.minY - e || bin.x + bin.w > bnd.maxX + e || bin.y + bin.d > bnd.maxY + e,
+  };
+}
+export function binSettled(i: BinIssues) {
+  return !i.overlaps.length && !i.obstructed && !i.outside;
+}
+/** A sentence for the one thing most worth saying about a badly placed bin. */
+export function binIssueText(p: Project, i: BinIssues, fmt: (mm: number) => string) {
+  if (i.obstructed) return 'Sitting on an obstruction tall enough to reach this level.';
+  if (i.overlaps.length) {
+    const names = i.overlaps.map((id) => binName(binById(p, id) ?? { id, label: '' })).join(', ');
+    return 'Closer than ' + fmt(minGapEff(p)) + ' to ' + names + '.';
+  }
+  if (i.outside) return 'Hanging past the drawer wall.';
+  return '';
+}
+
 /** Bins may touch down to the minimum gap, but no closer. Only bins sharing a level collide. */
 export function collidesAny(p: Project, rect: Rect, excludeId: number | null, level: number) {
   const g = minGapEff(p);
@@ -479,8 +520,9 @@ export function snapMove(
     y = sB - rect.d;
     guides.y.push(sB);
   }
-  x = Math.min(Math.max(x, bnd.minX), bnd.maxX - rect.w);
-  y = Math.min(Math.max(y, bnd.minY), bnd.maxY - rect.d);
+  // a bin may be dragged past the wall and left there; it gets flagged, not refused
+  x = Math.min(Math.max(x, bnd.minX - STRAY_MM), bnd.maxX - rect.w + STRAY_MM);
+  y = Math.min(Math.max(y, bnd.minY - STRAY_MM), bnd.maxY - rect.d + STRAY_MM);
   // Gridfinity drops the bin on the nearest run of cells instead, so the edge guides
   // have nothing left to say
   if (gfSnaps(p)) {
