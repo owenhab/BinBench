@@ -34,6 +34,7 @@ import Preview3D from './Preview3D';
 import SettingsPanels, { AdvancedPanels } from './SettingsPanels';
 import { BinList, ObstructionList, ShelfList } from './ListPanels';
 import ContainerLibrary from './ContainerLibrary';
+import PhotoMeasure from './PhotoMeasure';
 import { BaseplateSections, PlatePacking } from './PlatePanels';
 import Tour from './Tour';
 
@@ -452,6 +453,14 @@ export default function BinBenchApp() {
             onClear={() => { commitProject({ ...p, bins: [], blocked: [] }); closeEditor(); }} />
           <ContainerLibrary project={p} units={units} mine={myContainers} onSaveMine={rememberContainers} onAdd={addContainer}
             current={draft ? { w: draft.w, d: draft.d, heightMM: draft.heightMM, label: draft.label } : null} />
+          <PhotoMeasure project={p} units={units} onStatus={setStatus}
+            onCreateBin={(w, d, label) => {
+              const r = placeNewBin({ w, d, heightMM: Math.min(p.drawer.h - 10, 40), label, dividersX: [], dividersY: [] }, null, null, label);
+              commitProject(r.next);
+              setActiveLevel(1);
+              openEditorForBin(r.bin);
+              setStatus('Made a bin from the photo — check the size before you print it.');
+            }} />
           <ObstructionList project={p} units={units} onAdd={() => addObstruction()}
             onChange={(id, patch) => commitProject(
               { ...p, blocked: p.blocked.map((b) => (b.id === id ? { ...b, ...patch } : b)) },
